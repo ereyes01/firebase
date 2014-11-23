@@ -56,14 +56,12 @@ var httpClient = newTimeoutClient(connectTimeout, readWriteTimeout)
 
 // Init initializes the Firebase client with a given root url and optional auth token.
 // The initialization can also pass a mock api for testing purposes.
-func (c *Client) Init(root, auth string, api Api) {
+func NewClient(root, auth string, api Api) *Client {
 	if api == nil {
 		api = new(f)
 	}
 
-	c.api = api
-	c.Url = root
-	c.Auth = auth
+	return &Client{Url: root, Auth: auth, api: api, value: nil}
 }
 
 // Value returns the value of of the current Url.

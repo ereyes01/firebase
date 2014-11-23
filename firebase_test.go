@@ -22,8 +22,7 @@ var (
 )
 
 func TestValue(t *testing.T) {
-	client := new(Client)
-	client.Init(testUrl+"/tests", testAuth, nil)
+	client := NewClient(testUrl+"/tests", testAuth, nil)
 
 	r := client.Value()
 
@@ -33,8 +32,7 @@ func TestValue(t *testing.T) {
 }
 
 func TestChild(t *testing.T) {
-	client := new(Client)
-	client.Init(testUrl+"/tests", testAuth, nil)
+	client := NewClient(testUrl+"/tests", testAuth, nil)
 
 	r := client.Child("", nil, nil)
 
@@ -44,8 +42,7 @@ func TestChild(t *testing.T) {
 }
 
 func TestPush(t *testing.T) {
-	client := new(Client)
-	client.Init(testUrl+"/tests", testAuth, nil)
+	client := NewClient(testUrl+"/tests", testAuth, nil)
 
 	name := &Name{First: "FirstName", Last: "LastName"}
 
@@ -61,8 +58,7 @@ func TestPush(t *testing.T) {
 }
 
 func TestSet(t *testing.T) {
-	c1 := new(Client)
-	c1.Init(testUrl+"/tests/users", testAuth, nil)
+	c1 := NewClient(testUrl+"/tests/users", testAuth, nil)
 
 	name := &Name{First: "First", Last: "last"}
 	c2, _ := c1.Push(name, nil)
@@ -80,8 +76,7 @@ func TestSet(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	c1 := new(Client)
-	c1.Init(testUrl+"/tests/users", testAuth, nil)
+	c1 := NewClient(testUrl+"/tests/users", testAuth, nil)
 
 	name := &Name{First: "First", Last: "last"}
 	c2, _ := c1.Push(name, nil)
@@ -95,8 +90,7 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestRemovet(t *testing.T) {
-	c1 := new(Client)
-	c1.Init(testUrl+"/tests/users", testAuth, nil)
+	c1 := NewClient(testUrl+"/tests/users", testAuth, nil)
 
 	name := &Name{First: "First", Last: "last"}
 	c2, _ := c1.Push(name, nil)
@@ -109,8 +103,7 @@ func TestRemovet(t *testing.T) {
 }
 
 func TestRules(t *testing.T) {
-	client := new(Client)
-	client.Init(testUrl, testAuth, nil)
+	client := NewClient(testUrl, testAuth, nil)
 
 	r, err := client.Rules(nil)
 
@@ -124,8 +117,7 @@ func TestRules(t *testing.T) {
 }
 
 func TestSetRules(t *testing.T) {
-	client := new(Client)
-	client.Init(testUrl, testAuth, nil)
+	client := NewClient(testUrl, testAuth, nil)
 
 	rules := &Rules{
 		"rules": map[string]string{
