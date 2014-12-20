@@ -1,6 +1,7 @@
 package firebase
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -24,7 +25,11 @@ var (
 func TestValue(t *testing.T) {
 	client := NewClient(testUrl+"/tests", testAuth, nil)
 
-	r := client.Value()
+	var r map[string]interface{}
+	err := client.Value(&r)
+	if err != nil {
+		t.Error(err)
+	}
 
 	if r == nil {
 		t.Fatalf("No values returned from the server\n")
@@ -34,7 +39,7 @@ func TestValue(t *testing.T) {
 func TestChild(t *testing.T) {
 	client := NewClient(testUrl+"/tests", testAuth, nil)
 
-	r := client.Child("", nil, nil)
+	r := client.Child("")
 
 	if r == nil {
 		t.Fatalf("No child returned from the server\n")
@@ -54,6 +59,13 @@ func TestPush(t *testing.T) {
 
 	if r == nil {
 		t.Fatalf("No client returned from the server\n")
+	}
+
+	newName := &Name{}
+	c2 := NewClient(r.Url, testAuth, nil)
+	c2.Value(newName)
+	if !reflect.DeepEqual(name, newName) {
+		t.Errorf("Expected %v to equal %v", name, newName)
 	}
 }
 
@@ -96,9 +108,19 @@ func TestRemovet(t *testing.T) {
 	c2, _ := c1.Push(name, nil)
 
 	err := c2.Remove("", nil)
-
 	if err != nil {
 		t.Fatalf("%v\n", err)
+	}
+
+	var val map[string]interface{}
+	c3 := NewClient(c2.Url, testAuth, nil)
+	err = c3.Value(&val)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if len(val) != 0 {
+		t.Errorf("Expected %s to be removed, was %v", c2.Url, val)
 	}
 }
 

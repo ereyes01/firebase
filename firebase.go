@@ -5,10 +5,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/facebookgo/httpcontrol"
@@ -17,7 +15,7 @@ import (
 // Api is the interface for interacting with Firebase.
 // Consumers of this package can mock this interface for testing purposes.
 type Api interface {
-	Call(method, path, auth string, body []byte, params map[string]string) ([]byte, error)
+	Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error
 }
 
 // Client is the Firebase client.
@@ -30,11 +28,11 @@ type Client struct {
 	// call basis via params.
 	Auth string
 
+	// An error occurred at some point in the call chain
+	LastError error
+
 	// api is the underlying client used to make calls.
 	api Api
-
-	// value is the value of the object at the current Url
-	value interface{}
 }
 
 // Rules is the structure for security rules.
@@ -44,7 +42,7 @@ type Rules map[string]interface{}
 type f struct{}
 
 // suffix is the Firebase suffix for invoking their API via HTTP
-const suffix = ".json"
+const SUFFIX = ".json"
 
 var (
 	connectTimeout   = time.Duration(10 * time.Second) // timeout for http connection
@@ -55,81 +53,50 @@ var (
 var httpClient = newTimeoutClient(connectTimeout, readWriteTimeout)
 
 // Init initializes the Firebase client with a given root url and optional auth token.
+// Also takes an error channel to pass errors along when chaining together calls.
 // The initialization can also pass a mock api for testing purposes.
 func NewClient(root, auth string, api Api) *Client {
 	if api == nil {
 		api = new(f)
 	}
 
-	return &Client{Url: root, Auth: auth, api: api, value: nil}
+	return &Client{Url: root, Auth: auth, api: api}
 }
 
 // Value returns the value of of the current Url.
-func (c *Client) Value() interface{} {
+func (c *Client) Value(destination interface{}) error {
 	// if we have not yet performed a look-up, do it so a value is returned
-	if c.value == nil {
-		var v interface{}
-		c = c.Child("", nil, v)
+	err := c.api.Call("GET", c.Url, c.Auth, nil, nil, destination)
+	if err != nil {
+		return err
 	}
-
-	if c == nil {
-		return nil
-	}
-
-	return c.value
+	return nil
 }
 
 // Child returns a populated pointer for a given path.
-// If the path cannot be found, a null pointer is returned.
-func (c *Client) Child(path string, params map[string]string, v interface{}) *Client {
+func (c *Client) Child(path string) *Client {
 	u := c.Url + "/" + path
-
-	res, err := c.api.Call("GET", u, c.Auth, nil, params)
-	if err != nil {
-		return nil
+	return &Client{
+		api:  c.api,
+		Auth: c.Auth,
+		Url:  u,
 	}
-
-	err = json.Unmarshal(res, &v)
-	if err != nil {
-		return nil
-	}
-
-	ret := &Client{
-		api:   c.api,
-		Auth:  c.Auth,
-		Url:   u,
-		value: v}
-
-	return ret
 }
 
 // Push creates a new value under the current root url.
 // A populated pointer with that value is also returned.
 func (c *Client) Push(value interface{}, params map[string]string) (*Client, error) {
-	body, err := json.Marshal(value)
+	res := map[string]string{}
+	err := c.api.Call("POST", c.Url, c.Auth, value, params, &res)
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := c.api.Call("POST", c.Url, c.Auth, body, params)
-	if err != nil {
-		return nil, err
-	}
-
-	var r map[string]string
-
-	err = json.Unmarshal(res, &r)
-	if err != nil {
-		return nil, err
-	}
-
-	ret := &Client{
-		api:   c.api,
-		Auth:  c.Auth,
-		Url:   c.Url + "/" + r["name"],
-		value: value}
-
-	return ret, nil
+	return &Client{
+		api:  c.api,
+		Auth: c.Auth,
+		Url:  c.Url + "/" + res["name"],
+	}, nil
 }
 
 // Set overwrites the value at the specified path and returns populated pointer
@@ -137,96 +104,57 @@ func (c *Client) Push(value interface{}, params map[string]string) (*Client, err
 func (c *Client) Set(path string, value interface{}, params map[string]string) (*Client, error) {
 	u := c.Url + "/" + path
 
-	body, err := json.Marshal(value)
+	err := c.api.Call("PUT", u, c.Auth, value, params, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := c.api.Call("PUT", u, c.Auth, body, params)
-
-	if err != nil {
-		return nil, err
-	}
-
-	ret := &Client{
+	return &Client{
 		api:  c.api,
 		Auth: c.Auth,
-		Url:  u}
-
-	if len(res) > 0 {
-		var r interface{}
-
-		err = json.Unmarshal(res, &r)
-		if err != nil {
-			return nil, err
-		}
-
-		ret.value = r
-	}
-
-	return ret, nil
+		Url:  u,
+	}, nil
 }
 
 // Update performs a partial update with the given value at the specified path.
 func (c *Client) Update(path string, value interface{}, params map[string]string) error {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-
-	_, err = c.api.Call("PATCH", c.Url+"/"+path, c.Auth, body, params)
-
-	// if we've just updated the root node, clear the value so it gets looked up
-	// again and populated correctly since we just applied a diffgram
-	if len(path) == 0 {
-		c.value = nil
-	}
-
+	err := c.api.Call("PATCH", c.Url+"/"+path, c.Auth, value, params, nil)
 	return err
 }
 
 // Remove deletes the data at the given path.
 func (c *Client) Remove(path string, params map[string]string) error {
-	_, err := c.api.Call("DELETE", c.Url+"/"+path, c.Auth, nil, params)
+	err := c.api.Call("DELETE", c.Url+"/"+path, c.Auth, nil, params, nil)
 
 	return err
 }
 
 // Rules returns the security rules for the database.
-func (c *Client) Rules(params map[string]string) (Rules, error) {
-	res, err := c.api.Call("GET", c.Url+"/.settings/rules", c.Auth, nil, params)
+func (c *Client) Rules(params map[string]string) (*Rules, error) {
+	res := &Rules{}
+	err := c.api.Call("GET", c.Url+"/.settings/rules", c.Auth, nil, params, res)
 	if err != nil {
 		return nil, err
 	}
 
-	var v Rules
-	err = json.Unmarshal(res, &v)
-	if err != nil {
-		return nil, err
-	}
-
-	return v, nil
+	return res, nil
 }
 
 // SetRules overwrites the existing security rules with the new rules given.
 func (c *Client) SetRules(rules *Rules, params map[string]string) error {
-	body, err := json.Marshal(rules)
-	if err != nil {
-		return err
-	}
-
-	_, err = c.api.Call("PUT", c.Url+"/.settings/rules", c.Auth, body, params)
+	err := c.api.Call("PUT", c.Url+"/.settings/rules", c.Auth, rules, params, nil)
 
 	return err
 }
 
 // Call invokes the appropriate HTTP method on a given Firebase URL.
-func (f *f) Call(method, path, auth string, body []byte, params map[string]string) ([]byte, error) {
-	if !strings.HasSuffix(path, "/") {
-		path += "/"
-	}
+func (f *f) Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error {
+	/*
+		if !strings.HasSuffix(path, "/") {
+			path += "/"
+		}*/
 
-	path += suffix
+	path += SUFFIX
 	qs := url.Values{}
 
 	// if the client has an auth, set it as a query string.
@@ -244,30 +172,38 @@ func (f *f) Call(method, path, auth string, body []byte, params map[string]strin
 		path += "?" + qs.Encode()
 	}
 
-	req, err := http.NewRequest(method, path, bytes.NewReader(body))
+	encodedBody, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return err
+	}
+
+	req, err := http.NewRequest(method, path, bytes.NewReader(encodedBody))
+	if err != nil {
+		return err
 	}
 
 	req.Close = true
 
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer res.Body.Close()
 
-	ret, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	if res.StatusCode >= 400 {
-		err = errors.New(string(ret))
-		return nil, err
+		err = errors.New(res.Status)
+		return err
 	}
 
-	return ret, nil
+	if dest != nil && res.ContentLength != 0 {
+		decoder := json.NewDecoder(res.Body)
+		err = decoder.Decode(dest)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Duration) *http.Client {
