@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -92,7 +91,6 @@ func (c *Client) Child(path string, params map[string]string, v interface{}) *Cl
 
 	err = json.Unmarshal(res, &v)
 	if err != nil {
-		log.Printf("%v\n", err)
 		return nil
 	}
 
@@ -110,7 +108,6 @@ func (c *Client) Child(path string, params map[string]string, v interface{}) *Cl
 func (c *Client) Push(value interface{}, params map[string]string) (*Client, error) {
 	body, err := json.Marshal(value)
 	if err != nil {
-		log.Printf("%v\n", err)
 		return nil, err
 	}
 
@@ -123,7 +120,6 @@ func (c *Client) Push(value interface{}, params map[string]string) (*Client, err
 
 	err = json.Unmarshal(res, &r)
 	if err != nil {
-		log.Printf("%v\n", err)
 		return nil, err
 	}
 
@@ -143,7 +139,6 @@ func (c *Client) Set(path string, value interface{}, params map[string]string) (
 
 	body, err := json.Marshal(value)
 	if err != nil {
-		log.Printf("%v\n", err)
 		return nil, err
 	}
 
@@ -163,7 +158,6 @@ func (c *Client) Set(path string, value interface{}, params map[string]string) (
 
 		err = json.Unmarshal(res, &r)
 		if err != nil {
-			log.Printf("%v\n", err)
 			return nil, err
 		}
 
@@ -177,7 +171,6 @@ func (c *Client) Set(path string, value interface{}, params map[string]string) (
 func (c *Client) Update(path string, value interface{}, params map[string]string) error {
 	body, err := json.Marshal(value)
 	if err != nil {
-		log.Printf("%v\n", err)
 		return err
 	}
 
@@ -209,7 +202,6 @@ func (c *Client) Rules(params map[string]string) (Rules, error) {
 	var v Rules
 	err = json.Unmarshal(res, &v)
 	if err != nil {
-		log.Printf("%v\n", err)
 		return nil, err
 	}
 
@@ -220,7 +212,6 @@ func (c *Client) Rules(params map[string]string) (Rules, error) {
 func (c *Client) SetRules(rules *Rules, params map[string]string) error {
 	body, err := json.Marshal(rules)
 	if err != nil {
-		log.Printf("%v\n", err)
 		return err
 	}
 
@@ -255,29 +246,24 @@ func (f *f) Call(method, path, auth string, body []byte, params map[string]strin
 
 	req, err := http.NewRequest(method, path, bytes.NewReader(body))
 	if err != nil {
-		log.Printf("Cannot create Firebase request: %v\n", err)
 		return nil, err
 	}
 
 	req.Close = true
-	log.Printf("Calling %v %q\n", method, path)
 
 	res, err := httpClient.Do(req)
 	if err != nil {
-		log.Printf("Request to Firebase failed: %v\n", err)
 		return nil, err
 	}
 	defer res.Body.Close()
 
 	ret, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		log.Printf("Cannot parse Firebase response: %v\n", err)
 		return nil, err
 	}
 
 	if res.StatusCode >= 400 {
 		err = errors.New(string(ret))
-		log.Printf("Error encountered from Firebase: %v\n", err)
 		return nil, err
 	}
 
