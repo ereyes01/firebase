@@ -33,7 +33,7 @@ import (
 
 To use the client, initialize it and make requests similarly to the Firebase docs:
 ```go
-fire := firebase.NewClient("https://<TBD>.firebase.com", "<optional authentication token>", nil)
+fire := firebase.NewClient("https://<TBD>.firebaseio.com", "<optional authentication token>", nil)
 
 n := &Name { First: "Jack", Last: "Sparrow" }
 jack, err_ := fire.Child("users/jack").Set("name", n, nil)
