@@ -5,6 +5,8 @@ Go Firebase
 
 Helper library for invoking the Firebase REST API.
 
+[![Circle CI](https://circleci.com/gh/JustinTulloss/firebase.svg?style=svg)](https://circleci.com/gh/JustinTulloss/firebase)
+
 ## Installation
 
 ### Build
