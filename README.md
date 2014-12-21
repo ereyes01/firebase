@@ -1,56 +1,19 @@
 Go Firebase
-========
-
-## Summary
+===========
 
 Helper library for invoking the Firebase REST API.
 
 [![Circle CI](https://circleci.com/gh/JustinTulloss/firebase.svg?style=svg)](https://circleci.com/gh/JustinTulloss/firebase)
 
-## Installation
+### Usage
 
-### Build
-
-```sh
-go get github.com/JustinTulloss/firebase
-```
+[Read the godocs](https://godoc.org/github.com/JustinTulloss/firebase)
 
 ### Test
 
-Edit the firebase_test.go file and set the ```testUrl``` and ```testKey``` variables to match your Firebase account.
+Set the `FIREBASE_TEST_URL` and `FIREBASE_TEST_AUTH` environment variables to a valid URL and secret, respectively.
 
 Then run:
 ```sh
 go test github.com/JustinTulloss/firebase...
 ```
-
-## Usage
-
-First import the package into your code:
-```go
-import (
-    "github.com/JustinTulloss/firebase"
-)
-```
-
-To use the client, initialize it and make requests similarly to the Firebase docs:
-```go
-fire := firebase.NewClient("https://<TBD>.firebaseio.com", "<optional authentication token>", nil)
-
-n := &Name { First: "Jack", Last: "Sparrow" }
-jack, err_ := fire.Child("users/jack").Set("name", n, nil)
-```
-
-Currently, the following methods are supported:
-```go
-Child(path)
-Push(value)
-Set(path, value)
-Update(path, value)
-Remove(path)
-Value()
-Rules()
-SetRules(rules)
-```
-
-For more details about the Firebase APIs, see the [Firebase official documentation](https://www.firebase.com/docs/).
