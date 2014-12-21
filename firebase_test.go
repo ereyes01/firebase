@@ -22,8 +22,8 @@ and want to test your changes.
 
 // enter your firebase credentials for testing.
 var (
-	testUrl  string = ""
-	testAuth string = ""
+	testUrl  string = os.Getenv("FIREBASE_TEST_URL")
+	testAuth string = os.Getenv("FIREBASE_TEST_AUTH")
 )
 
 func TestValue(t *testing.T) {
@@ -160,8 +160,6 @@ func TestSetRules(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	testUrl = os.Getenv("FIREBASE_TEST_URL")
-	testAuth = os.Getenv("FIREBASE_TEST_AUTH")
 	if testUrl == "" || testAuth == "" {
 		fmt.Printf("You need to set FIREBASE_TEST_URL and FIREBASE_TEST_AUTH\n")
 		os.Exit(1)
