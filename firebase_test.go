@@ -1,8 +1,12 @@
-package firebase
+package firebase_test
 
 import (
+	"fmt"
+	"os"
 	"reflect"
 	"testing"
+
+	"github.com/JustinTulloss/firebase"
 )
 
 type Name struct {
@@ -23,7 +27,7 @@ var (
 )
 
 func TestValue(t *testing.T) {
-	client := NewClient(testUrl+"/tests", testAuth, nil)
+	client := firebase.NewClient(testUrl+"/tests", testAuth, nil)
 
 	var r map[string]interface{}
 	err := client.Value(&r)
@@ -37,7 +41,7 @@ func TestValue(t *testing.T) {
 }
 
 func TestChild(t *testing.T) {
-	client := NewClient(testUrl+"/tests", testAuth, nil)
+	client := firebase.NewClient(testUrl+"/tests", testAuth, nil)
 
 	r := client.Child("")
 
@@ -47,7 +51,7 @@ func TestChild(t *testing.T) {
 }
 
 func TestPush(t *testing.T) {
-	client := NewClient(testUrl+"/tests", testAuth, nil)
+	client := firebase.NewClient(testUrl+"/tests", testAuth, nil)
 
 	name := &Name{First: "FirstName", Last: "LastName"}
 
@@ -62,7 +66,7 @@ func TestPush(t *testing.T) {
 	}
 
 	newName := &Name{}
-	c2 := NewClient(r.Url, testAuth, nil)
+	c2 := firebase.NewClient(r.Url, testAuth, nil)
 	c2.Value(newName)
 	if !reflect.DeepEqual(name, newName) {
 		t.Errorf("Expected %v to equal %v", name, newName)
@@ -70,7 +74,7 @@ func TestPush(t *testing.T) {
 }
 
 func TestSet(t *testing.T) {
-	c1 := NewClient(testUrl+"/tests/users", testAuth, nil)
+	c1 := firebase.NewClient(testUrl+"/tests/users", testAuth, nil)
 
 	name := &Name{First: "First", Last: "last"}
 	c2, _ := c1.Push(name, nil)
@@ -88,7 +92,7 @@ func TestSet(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	c1 := NewClient(testUrl+"/tests/users", testAuth, nil)
+	c1 := firebase.NewClient(testUrl+"/tests/users", testAuth, nil)
 
 	name := &Name{First: "First", Last: "last"}
 	c2, _ := c1.Push(name, nil)
@@ -102,7 +106,7 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestRemovet(t *testing.T) {
-	c1 := NewClient(testUrl+"/tests/users", testAuth, nil)
+	c1 := firebase.NewClient(testUrl+"/tests/users", testAuth, nil)
 
 	name := &Name{First: "First", Last: "last"}
 	c2, _ := c1.Push(name, nil)
@@ -113,7 +117,7 @@ func TestRemovet(t *testing.T) {
 	}
 
 	var val map[string]interface{}
-	c3 := NewClient(c2.Url, testAuth, nil)
+	c3 := firebase.NewClient(c2.Url, testAuth, nil)
 	err = c3.Value(&val)
 	if err != nil {
 		t.Error(err)
@@ -125,7 +129,7 @@ func TestRemovet(t *testing.T) {
 }
 
 func TestRules(t *testing.T) {
-	client := NewClient(testUrl, testAuth, nil)
+	client := firebase.NewClient(testUrl, testAuth, nil)
 
 	r, err := client.Rules(nil)
 
@@ -139,9 +143,9 @@ func TestRules(t *testing.T) {
 }
 
 func TestSetRules(t *testing.T) {
-	client := NewClient(testUrl, testAuth, nil)
+	client := firebase.NewClient(testUrl, testAuth, nil)
 
-	rules := &Rules{
+	rules := &firebase.Rules{
 		"rules": map[string]string{
 			".read":  "auth.username == 'admin'",
 			".write": "auth.username == 'admin'",
@@ -153,4 +157,14 @@ func TestSetRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error retrieving rules: %v\n", err)
 	}
+}
+
+func TestMain(m *testing.M) {
+	testUrl = os.Getenv("FIREBASE_TEST_URL")
+	testAuth = os.Getenv("FIREBASE_TEST_AUTH")
+	if testUrl == "" || testAuth == "" {
+		fmt.Printf("You need to set FIREBASE_TEST_URL and FIREBASE_TEST_AUTH\n")
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
 }
