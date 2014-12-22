@@ -1,6 +1,7 @@
 package firebase_test
 
 import (
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -158,11 +159,10 @@ func TestSetRules(t *testing.T) {
 	}
 }
 
-/* TODO: Once circle ci supports go 1.4, uncomment this
 func TestMain(m *testing.M) {
 	if testUrl == "" || testAuth == "" {
 		fmt.Printf("You need to set FIREBASE_TEST_URL and FIREBASE_TEST_AUTH\n")
 		os.Exit(1)
 	}
 	os.Exit(m.Run())
-}*/
+}
