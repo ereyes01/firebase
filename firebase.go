@@ -6,12 +6,56 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/facebookgo/httpcontrol"
 )
+
+// Timestamp is a time.Time with support for going from and to firebase
+// ServerValue.TIMESTAMP fields.
+//
+// Thanks to Gal Ben-Haim for the inspiration
+// https://medium.com/coding-and-deploying-in-the-cloud/time-stamps-in-golang-abcaf581b72f
+type Timestamp time.Time
+
+const milliDivider = 1000000
+
+func (t *Timestamp) MarshalJSON() ([]byte, error) {
+	ts := time.Time(*t).UnixNano() / milliDivider // Milliseconds
+	stamp := fmt.Sprint(ts)
+
+	return []byte(stamp), nil
+}
+
+func (t *Timestamp) UnmarshalJSON(b []byte) error {
+	ts, err := strconv.ParseInt(string(b), 10, 64)
+	if err != nil {
+		return err
+	}
+
+	seconds := int64(ts) / 1000
+	nanoseconds := (int64(ts) % 1000) * milliDivider
+	*t = Timestamp(time.Unix(seconds, nanoseconds))
+
+	return nil
+}
+
+func (t Timestamp) String() string {
+	return time.Time(t).String()
+}
+
+type serverValue struct {
+	Value string `json:".sv"`
+}
+
+// Use this value to represent a Firebase server timestamp in a data structure.
+// This should be used when you're sending data to Firebase, as opposed to
+// the Timestamp type.
+var ServerTimestamp serverValue = serverValue{"timestamp"}
 
 // Api is the internal interface for interacting with Firebase.
 // Consumers of this package can mock this interface for testing purposes, regular

@@ -1,10 +1,12 @@
 package firebase_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/JustinTulloss/firebase"
 )
@@ -156,6 +158,36 @@ func TestSetRules(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("Error retrieving rules: %v\n", err)
+	}
+}
+
+func TestTimestamp(t *testing.T) {
+	ts := firebase.Timestamp(time.Now())
+	marshaled, err := json.Marshal(&ts)
+	if err != nil {
+		t.Fatalf("Could not marshal a timestamp to json: %s\n", err)
+	}
+	unmarshaledTs := firebase.Timestamp{}
+	err = json.Unmarshal(marshaled, &unmarshaledTs)
+	if err != nil {
+		t.Fatalf("Could not unmarshal a timestamp to json: %s\n", err)
+	}
+	// Compare unix timestamps as we lose some fidelity in the nanoseconds
+	if time.Time(ts).Unix() != time.Time(unmarshaledTs).Unix() {
+		t.Fatalf("Unmarshaled time %s not equivalent to marshaled time %s",
+			unmarshaledTs,
+			ts,
+		)
+	}
+}
+
+func TestServerTimestamp(t *testing.T) {
+	b, err := json.Marshal(firebase.ServerTimestamp)
+	if err != nil {
+		t.Fatalf("Could not marshal server timestamp: %s\n", err)
+	}
+	if string(b) != `{".sv":"timestamp"}` {
+		t.Fatalf("Unexpected timestamp json value: %s\n", b)
 	}
 }
 
