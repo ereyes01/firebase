@@ -65,6 +65,10 @@ type KeyedValue struct {
 	Value interface{}
 }
 
+// A function that provides an interface to copy decoded data into in
+// Client#Iterator
+type Destination func() interface{}
+
 // Api is the internal interface for interacting with Firebase.
 // Consumers of this package can mock this interface for testing purposes, regular
 // consumers can just use the default implementation and can ignore this completely.
@@ -130,11 +134,15 @@ func (c *Client) Value(destination interface{}) error {
 
 // Iterator returns a channel that will emit objects in key order.
 // TODO: Support more ordering options
-func (c *Client) Iterator() <-chan *KeyedValue {
+func (c *Client) Iterator(d Destination) <-chan *KeyedValue {
+	if d == nil {
+		d = func() interface{} { return &map[string]interface{}{} }
+	}
 	out := make(chan *KeyedValue)
 	go func() {
-		unorderedVal := map[string]interface{}{}
-		c.Value(unorderedVal)
+		unorderedVal := map[string]json.RawMessage{}
+		// XXX: What do we do in case of error?
+		c.Value(&unorderedVal)
 		keys := make([]string, len(unorderedVal))
 		i := 0
 		for key, _ := range unorderedVal {
@@ -143,9 +151,11 @@ func (c *Client) Iterator() <-chan *KeyedValue {
 		}
 		sort.Strings(keys)
 		for _, key := range keys {
+			destination := d()
+			json.Unmarshal(unorderedVal[key], destination)
 			out <- &KeyedValue{
 				Key:   key,
-				Value: unorderedVal[key],
+				Value: destination,
 			}
 		}
 		close(out)

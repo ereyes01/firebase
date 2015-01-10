@@ -192,7 +192,8 @@ func TestServerTimestamp(t *testing.T) {
 }
 
 func TestIterator(t *testing.T) {
-	client := firebase.NewClient(testUrl+"/tests", testAuth, nil)
+	client := firebase.NewClient(testUrl+"/test-iterator", testAuth, nil)
+	defer client.Remove("", nil)
 	names := []Name{
 		{First: "FirstName", Last: "LastName"},
 		{First: "Second", Last: "Seconder"},
@@ -205,12 +206,15 @@ func TestIterator(t *testing.T) {
 	}
 
 	var i = 0
-	for nameEntry := range client.Iterator() {
-		name := nameEntry.Value.(Name)
-		if !reflect.DeepEqual(names[i], name) {
-			t.Errorf("Expected %v to equal %v", names[i], name)
+	for nameEntry := range client.Iterator(func() interface{} { return &Name{} }) {
+		name := nameEntry.Value.(*Name)
+		if !reflect.DeepEqual(&names[i], name) {
+			t.Errorf("Expected %v to equal %v", &names[i], name)
 		}
 		i++
+	}
+	if i != len(names) {
+		t.Fatalf("Did not receive all names, received %d\n", i)
 	}
 }
 
