@@ -191,6 +191,29 @@ func TestServerTimestamp(t *testing.T) {
 	}
 }
 
+func TestIterator(t *testing.T) {
+	client := firebase.NewClient(testUrl+"/tests", testAuth, nil)
+	names := []Name{
+		{First: "FirstName", Last: "LastName"},
+		{First: "Second", Last: "Seconder"},
+	}
+	for _, name := range names {
+		_, err := client.Push(name, nil)
+		if err != nil {
+			t.Fatalf("%v\n", err)
+		}
+	}
+
+	var i = 0
+	for nameEntry := range client.Iterator() {
+		name := nameEntry.Value.(Name)
+		if !reflect.DeepEqual(names[i], name) {
+			t.Errorf("Expected %v to equal %v", names[i], name)
+		}
+		i++
+	}
+}
+
 func TestMain(m *testing.M) {
 	if testUrl == "" || testAuth == "" {
 		fmt.Printf("You need to set FIREBASE_TEST_URL and FIREBASE_TEST_AUTH\n")

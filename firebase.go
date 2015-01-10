@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"time"
 
@@ -56,6 +57,13 @@ type serverValue struct {
 // This should be used when you're sending data to Firebase, as opposed to
 // the Timestamp type.
 var ServerTimestamp serverValue = serverValue{"timestamp"}
+
+// KeyedValue is a type that is used to retain the key when pushing
+// values onto a channel. It is used by Client#Iterator().
+type KeyedValue struct {
+	Key   string
+	Value interface{}
+}
 
 // Api is the internal interface for interacting with Firebase.
 // Consumers of this package can mock this interface for testing purposes, regular
@@ -118,6 +126,31 @@ func (c *Client) Value(destination interface{}) error {
 		return err
 	}
 	return nil
+}
+
+// Iterator returns a channel that will emit objects in key order.
+// TODO: Support more ordering options
+func (c *Client) Iterator() <-chan *KeyedValue {
+	out := make(chan *KeyedValue)
+	go func() {
+		unorderedVal := map[string]interface{}{}
+		c.Value(unorderedVal)
+		keys := make([]string, len(unorderedVal))
+		i := 0
+		for key, _ := range unorderedVal {
+			keys[i] = key
+			i++
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			out <- &KeyedValue{
+				Key:   key,
+				Value: unorderedVal[key],
+			}
+		}
+		close(out)
+	}()
+	return out
 }
 
 // Child returns a reference to the child specified by `path`. This does not
