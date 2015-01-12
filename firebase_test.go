@@ -8,7 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"code.google.com/p/gomock/gomock"
+
 	"github.com/JustinTulloss/firebase"
+	"github.com/JustinTulloss/firebase/mock_firebase"
 )
 
 type Name struct {
@@ -68,7 +71,7 @@ func TestPush(t *testing.T) {
 	}
 
 	newName := &Name{}
-	c2 := firebase.NewClient(r.Url, testAuth, nil)
+	c2 := firebase.NewClient(r.String(), testAuth, nil)
 	c2.Value(newName)
 	if !reflect.DeepEqual(name, newName) {
 		t.Errorf("Expected %v to equal %v", name, newName)
@@ -119,14 +122,14 @@ func TestRemovet(t *testing.T) {
 	}
 
 	var val map[string]interface{}
-	c3 := firebase.NewClient(c2.Url, testAuth, nil)
+	c3 := firebase.NewClient(c2.String(), testAuth, nil)
 	err = c3.Value(&val)
 	if err != nil {
 		t.Error(err)
 	}
 
 	if len(val) != 0 {
-		t.Errorf("Expected %s to be removed, was %v", c2.Url, val)
+		t.Errorf("Expected %s to be removed, was %v", c2.String(), val)
 	}
 }
 
@@ -216,6 +219,15 @@ func TestIterator(t *testing.T) {
 	if i != len(names) {
 		t.Fatalf("Did not receive all names, received %d\n", i)
 	}
+}
+
+func TestMockable(t *testing.T) {
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockFire := mock_firebase.NewMockClient(mockCtrl)
+	mockFire.EXPECT().Child("test")
+	mockFire.Child("test")
 }
 
 func TestMain(m *testing.M) {
