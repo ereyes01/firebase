@@ -8,7 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"code.google.com/p/gomock/gomock"
+
 	"github.com/JustinTulloss/firebase"
+	"github.com/JustinTulloss/firebase/mock_firebase"
 )
 
 type Name struct {
@@ -216,6 +219,15 @@ func TestIterator(t *testing.T) {
 	if i != len(names) {
 		t.Fatalf("Did not receive all names, received %d\n", i)
 	}
+}
+
+func TestMockable(t *testing.T) {
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockFire := mock_firebase.NewMockClient(mockCtrl)
+	mockFire.EXPECT().Child("test")
+	mockFire.Child("test")
 }
 
 func TestMain(m *testing.M) {
