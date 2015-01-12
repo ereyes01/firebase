@@ -68,7 +68,7 @@ func TestPush(t *testing.T) {
 	}
 
 	newName := &Name{}
-	c2 := firebase.NewClient(r.Url, testAuth, nil)
+	c2 := firebase.NewClient(r.String(), testAuth, nil)
 	c2.Value(newName)
 	if !reflect.DeepEqual(name, newName) {
 		t.Errorf("Expected %v to equal %v", name, newName)
@@ -119,14 +119,14 @@ func TestRemovet(t *testing.T) {
 	}
 
 	var val map[string]interface{}
-	c3 := firebase.NewClient(c2.Url, testAuth, nil)
+	c3 := firebase.NewClient(c2.String(), testAuth, nil)
 	err = c3.Value(&val)
 	if err != nil {
 		t.Error(err)
 	}
 
 	if len(val) != 0 {
-		t.Errorf("Expected %s to be removed, was %v", c2.Url, val)
+		t.Errorf("Expected %s to be removed, was %v", c2.String(), val)
 	}
 }
 

@@ -83,8 +83,52 @@ type Api interface {
 	Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error
 }
 
-// Client is the Firebase client.
-type Client struct {
+type Client interface {
+	// Returns the absolute URL path for the client
+	String() string
+
+	//Gets the value referenced by the client and unmarshals it into
+	// the passed in destination.
+	Value(destination interface{}) error
+
+	// Iterator returns a channel that will emit objects in key order.
+	// TODO: Support more ordering options
+	Iterator(d Destination) <-chan *KeyedValue
+
+	// Child returns a reference to the child specified by `path`. This does not
+	// actually make a request to firebase, but you can then manipulate the reference
+	// by calling one of the other methods (such as `Value`, `Update`, or `Set`).
+	Child(path string) Client
+
+	// Creates a new value under this reference.
+	// Returns a reference to the newly created value.
+	// https://www.firebase.com/docs/web/api/firebase/push.html
+	Push(value interface{}, params map[string]string) (Client, error)
+
+	// Overwrites the value at the specified path and returns a reference
+	// that points to the path specified by `path`
+	Set(path string, value interface{}, params map[string]string) (Client, error)
+
+	// Update performs a partial update with the given value at the specified path.
+	// Returns an error if the update could not be performed.
+	// https://www.firebase.com/docs/web/api/firebase/update.html
+	Update(path string, value interface{}, params map[string]string) error
+
+	// Remove deletes the data at the current reference.
+	// https://www.firebase.com/docs/web/api/firebase/remove.html
+	Remove(path string, params map[string]string) error
+
+	// Rules returns the security rules for the database.
+	// https://www.firebase.com/docs/rest/api/#section-security-rules
+	Rules(params map[string]string) (*Rules, error)
+
+	// SetRules overwrites the existing security rules with the new rules given.
+	// https://www.firebase.com/docs/rest/api/#section-security-rules
+	SetRules(rules *Rules, params map[string]string) error
+}
+
+// This is the actual default implementation
+type client struct {
 	// Url is the client's base URL used for all calls.
 	Url string
 
@@ -111,20 +155,19 @@ var (
 // httpClient is the HTTP client used to make calls to Firebase with the default API
 var httpClient = newTimeoutClient(connectTimeout, readWriteTimeout)
 
-// Initializes the Firebase client with a given root url and optional auth token.
-// The initialization can also pass a mock api for testing purposes, most consumers
-// will just pass `nil` for the `api` parameter.
-func NewClient(root, auth string, api Api) *Client {
+func NewClient(root, auth string, api Api) Client {
 	if api == nil {
 		api = new(f)
 	}
 
-	return &Client{Url: root, Auth: auth, api: api}
+	return &client{Url: root, Auth: auth, api: api}
 }
 
-// Gets the value referenced by the client and unmarshals it into
-// the passed in destination.
-func (c *Client) Value(destination interface{}) error {
+func (c *client) String() string {
+	return c.Url
+}
+
+func (c *client) Value(destination interface{}) error {
 	err := c.api.Call("GET", c.Url, c.Auth, nil, nil, destination)
 	if err != nil {
 		return err
@@ -132,9 +175,8 @@ func (c *Client) Value(destination interface{}) error {
 	return nil
 }
 
-// Iterator returns a channel that will emit objects in key order.
 // TODO: Support more ordering options
-func (c *Client) Iterator(d Destination) <-chan *KeyedValue {
+func (c *client) Iterator(d Destination) <-chan *KeyedValue {
 	if d == nil {
 		d = func() interface{} { return &map[string]interface{}{} }
 	}
@@ -163,38 +205,30 @@ func (c *Client) Iterator(d Destination) <-chan *KeyedValue {
 	return out
 }
 
-// Child returns a reference to the child specified by `path`. This does not
-// actually make a request to firebase, but you can then manipulate the reference
-// by calling one of the other methods (such as `Value`, `Update`, or `Set`).
-func (c *Client) Child(path string) *Client {
+func (c *client) Child(path string) Client {
 	u := c.Url + "/" + path
-	return &Client{
+	return &client{
 		api:  c.api,
 		Auth: c.Auth,
 		Url:  u,
 	}
 }
 
-// Creates a new value under this reference.
-// Returns a reference to the newly created value.
-// https://www.firebase.com/docs/web/api/firebase/push.html
-func (c *Client) Push(value interface{}, params map[string]string) (*Client, error) {
+func (c *client) Push(value interface{}, params map[string]string) (Client, error) {
 	res := map[string]string{}
 	err := c.api.Call("POST", c.Url, c.Auth, value, params, &res)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Client{
+	return &client{
 		api:  c.api,
 		Auth: c.Auth,
 		Url:  c.Url + "/" + res["name"],
 	}, nil
 }
 
-// Overwrites the value at the specified path and returns a reference
-// that points to the path specified by `path`
-func (c *Client) Set(path string, value interface{}, params map[string]string) (*Client, error) {
+func (c *client) Set(path string, value interface{}, params map[string]string) (Client, error) {
 	u := c.Url + "/" + path
 
 	err := c.api.Call("PUT", u, c.Auth, value, params, nil)
@@ -202,32 +236,25 @@ func (c *Client) Set(path string, value interface{}, params map[string]string) (
 		return nil, err
 	}
 
-	return &Client{
+	return &client{
 		api:  c.api,
 		Auth: c.Auth,
 		Url:  u,
 	}, nil
 }
 
-// Update performs a partial update with the given value at the specified path.
-// Returns an error if the update could not be performed.
-// https://www.firebase.com/docs/web/api/firebase/update.html
-func (c *Client) Update(path string, value interface{}, params map[string]string) error {
+func (c *client) Update(path string, value interface{}, params map[string]string) error {
 	err := c.api.Call("PATCH", c.Url+"/"+path, c.Auth, value, params, nil)
 	return err
 }
 
-// Remove deletes the data at the current reference.
-// https://www.firebase.com/docs/web/api/firebase/remove.html
-func (c *Client) Remove(path string, params map[string]string) error {
+func (c *client) Remove(path string, params map[string]string) error {
 	err := c.api.Call("DELETE", c.Url+"/"+path, c.Auth, nil, params, nil)
 
 	return err
 }
 
-// Rules returns the security rules for the database.
-// https://www.firebase.com/docs/rest/api/#section-security-rules
-func (c *Client) Rules(params map[string]string) (*Rules, error) {
+func (c *client) Rules(params map[string]string) (*Rules, error) {
 	res := &Rules{}
 	err := c.api.Call("GET", c.Url+"/.settings/rules", c.Auth, nil, params, res)
 	if err != nil {
@@ -237,9 +264,7 @@ func (c *Client) Rules(params map[string]string) (*Rules, error) {
 	return res, nil
 }
 
-// SetRules overwrites the existing security rules with the new rules given.
-// https://www.firebase.com/docs/rest/api/#section-security-rules
-func (c *Client) SetRules(rules *Rules, params map[string]string) error {
+func (c *client) SetRules(rules *Rules, params map[string]string) error {
 	err := c.api.Call("PUT", c.Url+"/.settings/rules", c.Auth, rules, params, nil)
 
 	return err
