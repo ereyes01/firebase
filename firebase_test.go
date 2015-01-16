@@ -19,6 +19,10 @@ type Name struct {
 	Last  string `json:",omitempty"`
 }
 
+func nameAlloc() interface{} {
+	return &Name{}
+}
+
 /*
 Set the two variables below and set them to your own
 Firebase URL and credentials (optional) if you're forking the code
@@ -151,16 +155,83 @@ func TestSetRules(t *testing.T) {
 	client := firebase.NewClient(testUrl, testAuth, nil)
 
 	rules := &firebase.Rules{
-		"rules": map[string]string{
+		"rules": map[string]interface{}{
 			".read":  "auth.username == 'admin'",
 			".write": "auth.username == 'admin'",
+			"ordered": map[string]interface{}{
+				".indexOn": []string{"First"},
+				"kids": map[string]interface{}{
+					".indexOn": []string{"Age"},
+				},
+			},
 		},
 	}
 
 	err := client.SetRules(rules, nil)
 
 	if err != nil {
-		t.Fatalf("Error retrieving rules: %v\n", err)
+		t.Fatalf("Error setting rules: %v\n", err)
+	}
+}
+
+func TestOrderBy(t *testing.T) {
+	client := firebase.NewClient(testUrl, testAuth, nil).Child("ordered")
+	defer client.Remove("", nil)
+
+	names := []*Name{
+		&Name{First: "BBBB", Last: "YYYY"},
+		&Name{First: "AAAA", Last: "ZZZZZ"},
+	}
+
+	for _, n := range names {
+		_, err := client.Push(n, nil)
+		if err != nil {
+			t.Fatalf("Couldn't push new name: %s\n", err)
+		}
+	}
+
+	i := 0
+	for n := range client.OrderBy(firebase.KeyProp).Iterator(nameAlloc) {
+		if n.Value.(*Name).First != names[i].First {
+			t.Fatalf("Key order was not delivered")
+		}
+		i++
+	}
+	if i == 0 {
+		t.Fatalf("Did not receive names ordered by key")
+	}
+
+	expectedOrder := []*Name{names[1], names[0]}
+	i = 0
+	for n := range client.OrderBy("First").Iterator(nameAlloc) {
+		if n.Value.(*Name).First != expectedOrder[i].First {
+			t.Fatalf("Child prop order was not delivered")
+		}
+		i++
+	}
+	if i == 0 {
+		t.Fatalf("Did not receive names ordered by first name")
+	}
+
+	kids := map[string]map[string]interface{}{
+		"a": map[string]interface{}{"Name": "Bob", "Age": 14},
+		"b": map[string]interface{}{"Name": "Alice", "Age": 13},
+	}
+	_, err := client.Set("kids", kids, nil)
+	if err != nil {
+		t.Fatalf("Could not set kids: %s\n", err)
+	}
+
+	expectedKidsOrder := []map[string]interface{}{kids["b"], kids["a"]}
+	i = 0
+	for n := range client.Child("kids").OrderBy("Age").Iterator(nil) {
+		if (*n.Value.(*map[string]interface{}))["First"] != expectedKidsOrder[i]["First"] {
+			t.Fatalf("Child prop order by age was not delivered")
+		}
+		i++
+	}
+	if i == 0 {
+		t.Fatalf("Did not receive names ordered by age")
 	}
 }
 
@@ -209,7 +280,7 @@ func TestIterator(t *testing.T) {
 	}
 
 	var i = 0
-	for nameEntry := range client.Iterator(func() interface{} { return &Name{} }) {
+	for nameEntry := range client.Iterator(nameAlloc) {
 		name := nameEntry.Value.(*Name)
 		if !reflect.DeepEqual(&names[i], name) {
 			t.Errorf("Expected %v to equal %v", &names[i], name)

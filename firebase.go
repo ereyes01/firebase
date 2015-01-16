@@ -5,14 +5,14 @@ package firebase
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
+	"reflect"
 	"strconv"
 	"time"
 
+	"github.com/ancientlore/go-avltree"
 	"github.com/facebookgo/httpcontrol"
 )
 
@@ -53,16 +53,85 @@ type ServerValue struct {
 	Value string `json:".sv"`
 }
 
+type FirebaseError struct {
+	Message string `json:"error"`
+}
+
+func (f *FirebaseError) Error() string {
+	return f.Message
+}
+
 // Use this value to represent a Firebase server timestamp in a data structure.
 // This should be used when you're sending data to Firebase, as opposed to
 // the Timestamp type.
 var ServerTimestamp ServerValue = ServerValue{"timestamp"}
 
-// KeyedValue is a type that is used to retain the key when pushing
-// values onto a channel. It is used by Client#Iterator().
 type KeyedValue struct {
-	Key   string
-	Value interface{}
+	avltree.Pair
+	OrderBy string
+}
+
+func (p *KeyedValue) GetComparable() reflect.Value {
+	value := reflect.Indirect(reflect.ValueOf(p.Value))
+	var comparable reflect.Value
+	switch value.Kind() {
+	case reflect.Map:
+		comparable = value.MapIndex(reflect.ValueOf(p.OrderBy))
+	case reflect.Struct:
+		comparable = value.FieldByName(p.OrderBy)
+	default:
+		panic("Can only get comparable for maps and structs")
+	}
+	if comparable.Kind() == reflect.Interface || comparable.Kind() == reflect.Ptr {
+		return comparable.Elem()
+	}
+	return comparable
+}
+
+func (a *KeyedValue) Compare(b avltree.Interface) int {
+	if a.OrderBy == "" || a.OrderBy == KeyProp {
+		return a.Pair.Compare(b.(*KeyedValue).Pair)
+	}
+	ac := a.GetComparable()
+	bc := b.(*KeyedValue).GetComparable()
+	if ac.Kind() != bc.Kind() {
+		panic(fmt.Sprintf("Cannot compare %s to %s", ac.Kind(), bc.Kind()))
+	}
+	switch ac.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		ai := ac.Int()
+		bi := bc.Int()
+		if ai < bi {
+			return -1
+		} else if ai == bi {
+			return 0
+		} else if ai > bi {
+			return 1
+		}
+	case reflect.Float32, reflect.Float64:
+		af := ac.Float()
+		bf := bc.Float()
+		if af < bf {
+			return -1
+		} else if af == bf {
+			return 0
+		} else if af > bf {
+			return 1
+		}
+	case reflect.String:
+		as := ac.String()
+		bs := bc.String()
+		if as < bs {
+			return -1
+		} else if as == bs {
+			return 0
+		} else if as > bs {
+			return 1
+		}
+	default:
+		panic(fmt.Sprintf("Can only compare strings, floats, and ints. Not %s", ac.Kind()))
+	}
+	return 0
 }
 
 // A function that provides an interface to copy decoded data into in
@@ -91,8 +160,8 @@ type Client interface {
 	// the passed in destination.
 	Value(destination interface{}) error
 
-	// Iterator returns a channel that will emit objects in key order.
-	// TODO: Support more ordering options
+	// Iterator returns a channel that will emit objects in order defined by
+	// Client#OrderBy
 	Iterator(d Destination) <-chan *KeyedValue
 
 	// Child returns a reference to the child specified by `path`. This does not
@@ -136,13 +205,15 @@ type Client interface {
 
 // This is the actual default implementation
 type client struct {
-	// Url is the client's base URL used for all calls.
-	Url string
+	// The ordering being enforced on this client
+	Order string
+	// url is the client's base URL used for all calls.
+	url string
 
-	// Auth is authentication token used when making calls.
+	// auth is authentication token used when making calls.
 	// The token is optional and can also be overwritten on an individual
 	// call basis via params.
-	Auth string
+	auth string
 
 	// api is the underlying client used to make calls.
 	api Api
@@ -169,45 +240,44 @@ func NewClient(root, auth string, api Api) Client {
 		api = new(f)
 	}
 
-	return &client{Url: root, Auth: auth, api: api}
+	return &client{url: root, auth: auth, api: api}
 }
 
 func (c *client) String() string {
-	return c.Url
+	return c.url
 }
 
 func (c *client) Value(destination interface{}) error {
-	err := c.api.Call("GET", c.Url, c.Auth, nil, c.params, destination)
+	err := c.api.Call("GET", c.url, c.auth, nil, c.params, destination)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-// TODO: Support more ordering options
 func (c *client) Iterator(d Destination) <-chan *KeyedValue {
 	if d == nil {
 		d = func() interface{} { return &map[string]interface{}{} }
 	}
 	out := make(chan *KeyedValue)
 	go func() {
+		tree := avltree.NewObjectTree(0)
 		unorderedVal := map[string]json.RawMessage{}
 		// XXX: What do we do in case of error?
 		c.Value(&unorderedVal)
-		keys := make([]string, len(unorderedVal))
-		i := 0
 		for key, _ := range unorderedVal {
-			keys[i] = key
-			i++
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
 			destination := d()
 			json.Unmarshal(unorderedVal[key], destination)
-			out <- &KeyedValue{
-				Key:   key,
-				Value: destination,
-			}
+			tree.Add(&KeyedValue{
+				Pair: avltree.Pair{
+					Key:   key,
+					Value: destination,
+				},
+				OrderBy: c.Order,
+			})
+		}
+		for in := range tree.Iter() {
+			out <- in.(*KeyedValue)
 		}
 		close(out)
 	}()
@@ -215,16 +285,18 @@ func (c *client) Iterator(d Destination) <-chan *KeyedValue {
 }
 
 func (c *client) Child(path string) Client {
-	u := c.Url + "/" + path
+	u := c.url + "/" + path
 	return &client{
 		api:    c.api,
-		Auth:   c.Auth,
-		Url:    u,
+		auth:   c.auth,
+		url:    u,
 		params: c.params,
 	}
 }
 
-const KeyProp = "$key"
+const (
+	KeyProp = "$key"
+)
 
 // These are some shenanigans, golang. Shenanigans I say.
 func (c *client) newParamMap(key, value string) map[string]string {
@@ -232,15 +304,16 @@ func (c *client) newParamMap(key, value string) map[string]string {
 	for key, value := range c.params {
 		ret[key] = value
 	}
-	ret[key] = value
+	jsonVal, _ := json.Marshal(value)
+	ret[key] = string(jsonVal)
 	return ret
 }
 
 func (c *client) clientWithNewParam(key, value string) *client {
 	return &client{
 		api:    c.api,
-		Auth:   c.Auth,
-		Url:    c.Url,
+		auth:   c.auth,
+		url:    c.url,
 		params: c.newParamMap(key, value),
 	}
 }
@@ -248,7 +321,9 @@ func (c *client) clientWithNewParam(key, value string) *client {
 // Query functions. They map directly to the Firebase operations.
 // https://www.firebase.com/docs/rest/guide/retrieving-data.html#section-rest-queries
 func (c *client) OrderBy(prop string) Client {
-	return c.clientWithNewParam("orderBy", prop)
+	newC := c.clientWithNewParam("orderBy", prop)
+	newC.Order = prop
+	return newC
 }
 
 func (c *client) EqualTo(value string) Client {
@@ -265,49 +340,49 @@ func (c *client) EndAt(value string) Client {
 
 func (c *client) Push(value interface{}, params map[string]string) (Client, error) {
 	res := map[string]string{}
-	err := c.api.Call("POST", c.Url, c.Auth, value, params, &res)
+	err := c.api.Call("POST", c.url, c.auth, value, params, &res)
 	if err != nil {
 		return nil, err
 	}
 
 	return &client{
 		api:    c.api,
-		Auth:   c.Auth,
-		Url:    c.Url + "/" + res["name"],
+		auth:   c.auth,
+		url:    c.url + "/" + res["name"],
 		params: c.params,
 	}, nil
 }
 
 func (c *client) Set(path string, value interface{}, params map[string]string) (Client, error) {
-	u := c.Url + "/" + path
+	u := c.url + "/" + path
 
-	err := c.api.Call("PUT", u, c.Auth, value, params, nil)
+	err := c.api.Call("PUT", u, c.auth, value, params, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	return &client{
 		api:    c.api,
-		Auth:   c.Auth,
-		Url:    u,
+		auth:   c.auth,
+		url:    u,
 		params: c.params,
 	}, nil
 }
 
 func (c *client) Update(path string, value interface{}, params map[string]string) error {
-	err := c.api.Call("PATCH", c.Url+"/"+path, c.Auth, value, params, nil)
+	err := c.api.Call("PATCH", c.url+"/"+path, c.auth, value, params, nil)
 	return err
 }
 
 func (c *client) Remove(path string, params map[string]string) error {
-	err := c.api.Call("DELETE", c.Url+"/"+path, c.Auth, nil, params, nil)
+	err := c.api.Call("DELETE", c.url+"/"+path, c.auth, nil, params, nil)
 
 	return err
 }
 
 func (c *client) Rules(params map[string]string) (*Rules, error) {
 	res := &Rules{}
-	err := c.api.Call("GET", c.Url+"/.settings/rules", c.Auth, nil, params, res)
+	err := c.api.Call("GET", c.url+"/.settings/rules", c.auth, nil, params, res)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +391,7 @@ func (c *client) Rules(params map[string]string) (*Rules, error) {
 }
 
 func (c *client) SetRules(rules *Rules, params map[string]string) error {
-	err := c.api.Call("PUT", c.Url+"/.settings/rules", c.Auth, rules, params, nil)
+	err := c.api.Call("PUT", c.url+"/.settings/rules", c.auth, rules, params, nil)
 
 	return err
 }
@@ -361,13 +436,14 @@ func (f *f) Call(method, path, auth string, body interface{}, params map[string]
 	}
 	defer res.Body.Close()
 
+	decoder := json.NewDecoder(res.Body)
 	if res.StatusCode >= 400 {
-		err = errors.New(res.Status)
+		err := &FirebaseError{}
+		decoder.Decode(err)
 		return err
 	}
 
 	if dest != nil && res.ContentLength != 0 {
-		decoder := json.NewDecoder(res.Body)
 		err = decoder.Decode(dest)
 		if err != nil {
 			return err
