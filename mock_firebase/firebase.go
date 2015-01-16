@@ -100,6 +100,46 @@ func (_mr *_MockClientRecorder) Child(arg0 interface{}) *gomock.Call {
 	return _mr.mock.ctrl.RecordCall(_mr.mock, "Child", arg0)
 }
 
+func (_m *MockClient) OrderBy(prop string) Client {
+	ret := _m.ctrl.Call(_m, "OrderBy", prop)
+	ret0, _ := ret[0].(Client)
+	return ret0
+}
+
+func (_mr *_MockClientRecorder) OrderBy(arg0 interface{}) *gomock.Call {
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "OrderBy", arg0)
+}
+
+func (_m *MockClient) EqualTo(value string) Client {
+	ret := _m.ctrl.Call(_m, "EqualTo", value)
+	ret0, _ := ret[0].(Client)
+	return ret0
+}
+
+func (_mr *_MockClientRecorder) EqualTo(arg0 interface{}) *gomock.Call {
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "EqualTo", arg0)
+}
+
+func (_m *MockClient) StartAt(value string) Client {
+	ret := _m.ctrl.Call(_m, "StartAt", value)
+	ret0, _ := ret[0].(Client)
+	return ret0
+}
+
+func (_mr *_MockClientRecorder) StartAt(arg0 interface{}) *gomock.Call {
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "StartAt", arg0)
+}
+
+func (_m *MockClient) EndAt(value string) Client {
+	ret := _m.ctrl.Call(_m, "EndAt", value)
+	ret0, _ := ret[0].(Client)
+	return ret0
+}
+
+func (_mr *_MockClientRecorder) EndAt(arg0 interface{}) *gomock.Call {
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "EndAt", arg0)
+}
+
 func (_m *MockClient) Push(value interface{}, params map[string]string) (Client, error) {
 	ret := _m.ctrl.Call(_m, "Push", value, params)
 	ret0, _ := ret[0].(Client)

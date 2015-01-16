@@ -49,14 +49,14 @@ func (t Timestamp) String() string {
 	return time.Time(t).String()
 }
 
-type serverValue struct {
+type ServerValue struct {
 	Value string `json:".sv"`
 }
 
 // Use this value to represent a Firebase server timestamp in a data structure.
 // This should be used when you're sending data to Firebase, as opposed to
 // the Timestamp type.
-var ServerTimestamp serverValue = serverValue{"timestamp"}
+var ServerTimestamp ServerValue = ServerValue{"timestamp"}
 
 // KeyedValue is a type that is used to retain the key when pushing
 // values onto a channel. It is used by Client#Iterator().
@@ -100,6 +100,13 @@ type Client interface {
 	// by calling one of the other methods (such as `Value`, `Update`, or `Set`).
 	Child(path string) Client
 
+	// Query functions. They map directly to the Firebase operations.
+	// https://www.firebase.com/docs/rest/guide/retrieving-data.html#section-rest-queries
+	OrderBy(prop string) Client
+	EqualTo(value string) Client
+	StartAt(value string) Client
+	EndAt(value string) Client
+
 	// Creates a new value under this reference.
 	// Returns a reference to the newly created value.
 	// https://www.firebase.com/docs/web/api/firebase/push.html
@@ -139,6 +146,8 @@ type client struct {
 
 	// api is the underlying client used to make calls.
 	api Api
+
+	params map[string]string
 }
 
 // Rules is the structure for security rules.
@@ -168,7 +177,7 @@ func (c *client) String() string {
 }
 
 func (c *client) Value(destination interface{}) error {
-	err := c.api.Call("GET", c.Url, c.Auth, nil, nil, destination)
+	err := c.api.Call("GET", c.Url, c.Auth, nil, c.params, destination)
 	if err != nil {
 		return err
 	}
@@ -208,10 +217,50 @@ func (c *client) Iterator(d Destination) <-chan *KeyedValue {
 func (c *client) Child(path string) Client {
 	u := c.Url + "/" + path
 	return &client{
-		api:  c.api,
-		Auth: c.Auth,
-		Url:  u,
+		api:    c.api,
+		Auth:   c.Auth,
+		Url:    u,
+		params: c.params,
 	}
+}
+
+const KeyProp = "$key"
+
+// These are some shenanigans, golang. Shenanigans I say.
+func (c *client) newParamMap(key, value string) map[string]string {
+	ret := make(map[string]string, len(c.params)+1)
+	for key, value := range c.params {
+		ret[key] = value
+	}
+	ret[key] = value
+	return ret
+}
+
+func (c *client) clientWithNewParam(key, value string) *client {
+	return &client{
+		api:    c.api,
+		Auth:   c.Auth,
+		Url:    c.Url,
+		params: c.newParamMap(key, value),
+	}
+}
+
+// Query functions. They map directly to the Firebase operations.
+// https://www.firebase.com/docs/rest/guide/retrieving-data.html#section-rest-queries
+func (c *client) OrderBy(prop string) Client {
+	return c.clientWithNewParam("orderBy", prop)
+}
+
+func (c *client) EqualTo(value string) Client {
+	return c.clientWithNewParam("equalTo", value)
+}
+
+func (c *client) StartAt(value string) Client {
+	return c.clientWithNewParam("startAt", value)
+}
+
+func (c *client) EndAt(value string) Client {
+	return c.clientWithNewParam("endAt", value)
 }
 
 func (c *client) Push(value interface{}, params map[string]string) (Client, error) {
@@ -222,9 +271,10 @@ func (c *client) Push(value interface{}, params map[string]string) (Client, erro
 	}
 
 	return &client{
-		api:  c.api,
-		Auth: c.Auth,
-		Url:  c.Url + "/" + res["name"],
+		api:    c.api,
+		Auth:   c.Auth,
+		Url:    c.Url + "/" + res["name"],
+		params: c.params,
 	}, nil
 }
 
@@ -237,9 +287,10 @@ func (c *client) Set(path string, value interface{}, params map[string]string) (
 	}
 
 	return &client{
-		api:  c.api,
-		Auth: c.Auth,
-		Url:  u,
+		api:    c.api,
+		Auth:   c.Auth,
+		Url:    u,
+		params: c.params,
 	}, nil
 }
 
