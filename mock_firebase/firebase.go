@@ -70,6 +70,16 @@ func (_mr *_MockClientRecorder) String() *gomock.Call {
 	return _mr.mock.ctrl.RecordCall(_mr.mock, "String")
 }
 
+func (_m *MockClient) Key() string {
+	ret := _m.ctrl.Call(_m, "Key")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+func (_mr *_MockClientRecorder) Key() *gomock.Call {
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "Key")
+}
+
 func (_m *MockClient) Value(destination interface{}) error {
 	ret := _m.ctrl.Call(_m, "Value", destination)
 	ret0, _ := ret[0].(error)

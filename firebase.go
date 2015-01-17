@@ -9,12 +9,15 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/ancientlore/go-avltree"
 	"github.com/facebookgo/httpcontrol"
 )
+
+var keyExtractor = regexp.MustCompile(`https://.*/([^/]+)/?$`)
 
 // Timestamp is a time.Time with support for going from and to firebase
 // ServerValue.TIMESTAMP fields.
@@ -156,6 +159,9 @@ type Client interface {
 	// Returns the absolute URL path for the client
 	String() string
 
+	// Returns the last part of the URL path for the client.
+	Key() string
+
 	//Gets the value referenced by the client and unmarshals it into
 	// the passed in destination.
 	Value(destination interface{}) error
@@ -245,6 +251,17 @@ func NewClient(root, auth string, api Api) Client {
 
 func (c *client) String() string {
 	return c.url
+}
+
+func (c *client) Key() string {
+	matches := keyExtractor.FindAllStringSubmatch(c.url, 1)
+	// This is kind of an error. There should always be a / somewhere,
+	// but if you just have the raw domain you don't really need one. So
+	// we assume this is the case and return ""
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[0][1]
 }
 
 func (c *client) Value(destination interface{}) error {

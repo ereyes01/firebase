@@ -292,6 +292,23 @@ func TestIterator(t *testing.T) {
 	}
 }
 
+func TestKey(t *testing.T) {
+	client := firebase.NewClient(testUrl+"/test", testAuth, nil)
+	if client.Key() != "test" {
+		t.Errorf("Key should have been test, was %s\n", client.Key())
+	}
+
+	client = firebase.NewClient(testUrl, testAuth, nil)
+	if client.Key() != "" {
+		t.Errorf("Key should have been empty, was %s\n", client.Key())
+	}
+
+	client = client.Child("/a/b/c/d/e/f/g")
+	if client.Key() != "g" {
+		t.Errorf("Key should have been 'g', was %s\n", client.Key())
+	}
+}
+
 func TestMockable(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 	defer mockCtrl.Finish()
