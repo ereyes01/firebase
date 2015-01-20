@@ -292,6 +292,20 @@ func TestIterator(t *testing.T) {
 	}
 }
 
+func TestShallow(t *testing.T) {
+	client := firebase.NewClient(testUrl+"/test-shallow", testAuth, nil)
+	defer client.Remove("", nil)
+	client.Set("one", 1, nil)
+	client.Set("two", 2, nil)
+	keys, err := client.Shallow()
+	if err != nil {
+		t.Errorf("Error when calling shallow: %s\n", err)
+	}
+	if !reflect.DeepEqual(keys, []string{"one", "two"}) {
+		t.Errorf("keys (%v) were not correct\n", keys)
+	}
+}
+
 func TestKey(t *testing.T) {
 	client := firebase.NewClient(testUrl+"/test", testAuth, nil)
 	if client.Key() != "test" {
