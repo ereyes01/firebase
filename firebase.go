@@ -173,7 +173,7 @@ type Client interface {
 	// Shallow returns a list of keys at a particular location
 	// Only supports objects, unlike the REST artument which supports
 	// literals. If the location is a literal, use Client#Value()
-	Shallow() ([]string, error)
+	Shallow() Client
 
 	// Child returns a reference to the child specified by `path`. This does not
 	// actually make a request to firebase, but you can then manipulate the reference
@@ -306,14 +306,8 @@ func (c *client) Iterator(d Destination) <-chan *KeyedValue {
 	return out
 }
 
-func (c *client) Shallow() ([]string, error) {
-	c.params = c.newParamMap("shallow", "true")
-	ch := c.Iterator(nil)
-	keySlice := []string{}
-	for kv := range ch {
-		keySlice = append(keySlice, kv.Key)
-	}
-	return keySlice, nil
+func (c *client) Shallow() Client {
+	return c.clientWithNewParam("shallow", "true")
 }
 
 func (c *client) Child(path string) Client {
