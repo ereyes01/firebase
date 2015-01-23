@@ -307,7 +307,18 @@ func (c *client) Iterator(d Destination) <-chan *KeyedValue {
 }
 
 func (c *client) Shallow() Client {
-	return c.clientWithNewParam("shallow", "true")
+	newParams := make(map[string]string)
+	for key, value := range c.params {
+		newParams[key] = value
+	}
+	newParams["shallow"] = "true"
+
+	return &client{
+		api:    c.api,
+		auth:   c.auth,
+		url:    c.url,
+		params: newParams,
+	}
 }
 
 func (c *client) Child(path string) Client {
