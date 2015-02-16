@@ -239,7 +239,7 @@ type Rules map[string]interface{}
 type f struct{}
 
 var (
-	connectTimeout   = time.Duration(10 * time.Second) // timeout for http connection
+	connectTimeout   = time.Duration(30 * time.Second) // timeout for http connection
 	readWriteTimeout = time.Duration(10 * time.Second) // timeout for http read/write
 )
 
@@ -493,9 +493,10 @@ func (f *f) Call(method, path, auth string, body interface{}, params map[string]
 func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Duration) *http.Client {
 	return &http.Client{
 		Transport: &httpcontrol.Transport{
-			RequestTimeout: readWriteTimeout,
-			DialTimeout:    connectTimeout,
-			MaxTries:       3,
+			RequestTimeout:      readWriteTimeout,
+			DialTimeout:         connectTimeout,
+			MaxTries:            3,
+			MaxIdleConnsPerHost: 200,
 		},
 	}
 }
