@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 	"time"
 
@@ -293,96 +292,6 @@ var _ = Describe("Firebase timestamps", func() {
 		Expect(string(text)).To(Equal(`{".sv":"timestamp"}`))
 	})
 })
-
-func TestOrderBy(t *testing.T) {
-	t.Skip("needs httptest")
-	client := NewClient(testUrl, testAuth, nil).Child("ordered")
-	defer client.Remove("", nil)
-
-	names := []*Name{
-		&Name{First: "BBBB", Last: "YYYY"},
-		&Name{First: "AAAA", Last: "ZZZZZ"},
-	}
-
-	for _, n := range names {
-		_, err := client.Push(n, nil)
-		if err != nil {
-			t.Fatalf("Couldn't push new name: %s\n", err)
-		}
-	}
-
-	i := 0
-	for n := range client.OrderBy(KeyProp).Iterator(nameAlloc) {
-		if n.Value.(*Name).First != names[i].First {
-			t.Fatalf("Key order was not delivered")
-		}
-		i++
-	}
-	if i == 0 {
-		t.Fatalf("Did not receive names ordered by key")
-	}
-
-	expectedOrder := []*Name{names[1], names[0]}
-	i = 0
-	for n := range client.OrderBy("First").Iterator(nameAlloc) {
-		if n.Value.(*Name).First != expectedOrder[i].First {
-			t.Fatalf("Child prop order was not delivered")
-		}
-		i++
-	}
-	if i == 0 {
-		t.Fatalf("Did not receive names ordered by first name")
-	}
-
-	kids := map[string]map[string]interface{}{
-		"a": map[string]interface{}{"Name": "Bob", "Age": 14},
-		"b": map[string]interface{}{"Name": "Alice", "Age": 13},
-	}
-	_, err := client.Set("kids", kids, nil)
-	if err != nil {
-		t.Fatalf("Could not set kids: %s\n", err)
-	}
-
-	expectedKidsOrder := []map[string]interface{}{kids["b"], kids["a"]}
-	i = 0
-	for n := range client.Child("kids").OrderBy("Age").Iterator(nil) {
-		if (*n.Value.(*map[string]interface{}))["First"] != expectedKidsOrder[i]["First"] {
-			t.Fatalf("Child prop order by age was not delivered")
-		}
-		i++
-	}
-	if i == 0 {
-		t.Fatalf("Did not receive names ordered by age")
-	}
-}
-
-func TestIterator(t *testing.T) {
-	t.Skip("needs httptest")
-	client := NewClient(testUrl+"/test-iterator", testAuth, nil)
-	defer client.Remove("", nil)
-	names := []Name{
-		{First: "FirstName", Last: "LastName"},
-		{First: "Second", Last: "Seconder"},
-	}
-	for _, name := range names {
-		_, err := client.Push(name, nil)
-		if err != nil {
-			t.Fatalf("%v\n", err)
-		}
-	}
-
-	var i = 0
-	for nameEntry := range client.Iterator(nameAlloc) {
-		name := nameEntry.Value.(*Name)
-		if !reflect.DeepEqual(&names[i], name) {
-			t.Errorf("Expected %v to equal %v", &names[i], name)
-		}
-		i++
-	}
-	if i != len(names) {
-		t.Fatalf("Did not receive all names, received %d\n", i)
-	}
-}
 
 func TestFirebase(t *testing.T) {
 	RegisterFailHandler(Fail)

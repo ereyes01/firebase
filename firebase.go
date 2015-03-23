@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"reflect"
 	"regexp"
 	"strconv"
 	"time"
 
-	"github.com/ancientlore/go-avltree"
 	"github.com/facebookgo/httpcontrol"
 )
 
@@ -69,78 +67,6 @@ func (f *FirebaseError) Error() string {
 // the Timestamp type.
 var ServerTimestamp ServerValue = ServerValue{"timestamp"}
 
-type KeyedValue struct {
-	avltree.Pair
-	OrderBy string
-}
-
-func (p *KeyedValue) GetComparable() reflect.Value {
-	value := reflect.Indirect(reflect.ValueOf(p.Value))
-	var comparable reflect.Value
-	switch value.Kind() {
-	case reflect.Map:
-		comparable = value.MapIndex(reflect.ValueOf(p.OrderBy))
-	case reflect.Struct:
-		comparable = value.FieldByName(p.OrderBy)
-	default:
-		panic("Can only get comparable for maps and structs")
-	}
-	if comparable.Kind() == reflect.Interface || comparable.Kind() == reflect.Ptr {
-		return comparable.Elem()
-	}
-	return comparable
-}
-
-func (a *KeyedValue) Compare(b avltree.Interface) int {
-	if a.OrderBy == "" || a.OrderBy == KeyProp {
-		return a.Pair.Compare(b.(*KeyedValue).Pair)
-	}
-	ac := a.GetComparable()
-	bc := b.(*KeyedValue).GetComparable()
-	if ac.Kind() != bc.Kind() {
-		panic(fmt.Sprintf("Cannot compare %s to %s", ac.Kind(), bc.Kind()))
-	}
-	switch ac.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		ai := ac.Int()
-		bi := bc.Int()
-		if ai < bi {
-			return -1
-		} else if ai == bi {
-			return 0
-		} else if ai > bi {
-			return 1
-		}
-	case reflect.Float32, reflect.Float64:
-		af := ac.Float()
-		bf := bc.Float()
-		if af < bf {
-			return -1
-		} else if af == bf {
-			return 0
-		} else if af > bf {
-			return 1
-		}
-	case reflect.String:
-		as := ac.String()
-		bs := bc.String()
-		if as < bs {
-			return -1
-		} else if as == bs {
-			return 0
-		} else if as > bs {
-			return 1
-		}
-	default:
-		panic(fmt.Sprintf("Can only compare strings, floats, and ints. Not %s", ac.Kind()))
-	}
-	return 0
-}
-
-// A function that provides an interface to copy decoded data into in
-// Client#Iterator
-type Destination func() interface{}
-
 // Api is the internal interface for interacting with Firebase.
 // Consumers of this package can mock this interface for testing purposes, regular
 // consumers can just use the default implementation and can ignore this completely.
@@ -165,10 +91,6 @@ type Client interface {
 	//Gets the value referenced by the client and unmarshals it into
 	// the passed in destination.
 	Value(destination interface{}) error
-
-	// Iterator returns a channel that will emit objects in order defined by
-	// Client#OrderBy
-	Iterator(d Destination) <-chan *KeyedValue
 
 	// Shallow returns a list of keys at a particular location
 	// Only supports objects, unlike the REST artument which supports
@@ -275,35 +197,6 @@ func (c *client) Value(destination interface{}) error {
 		return err
 	}
 	return nil
-}
-
-func (c *client) Iterator(d Destination) <-chan *KeyedValue {
-	if d == nil {
-		d = func() interface{} { return &map[string]interface{}{} }
-	}
-	out := make(chan *KeyedValue)
-	go func() {
-		tree := avltree.NewObjectTree(0)
-		unorderedVal := map[string]json.RawMessage{}
-		// XXX: What do we do in case of error?
-		c.Value(&unorderedVal)
-		for key, _ := range unorderedVal {
-			destination := d()
-			json.Unmarshal(unorderedVal[key], destination)
-			tree.Add(&KeyedValue{
-				Pair: avltree.Pair{
-					Key:   key,
-					Value: destination,
-				},
-				OrderBy: c.Order,
-			})
-		}
-		for in := range tree.Iter() {
-			out <- in.(*KeyedValue)
-		}
-		close(out)
-	}()
-	return out
 }
 
 func (c *client) Shallow() Client {
