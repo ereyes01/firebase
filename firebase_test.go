@@ -1,17 +1,21 @@
-package firebase_test
+package firebase
 
 import (
 	"encoding/json"
 	"fmt"
-	"os"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
 
-	"code.google.com/p/gomock/gomock"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+)
 
-	"github.com/JustinTulloss/firebase"
-	"github.com/JustinTulloss/firebase/mock_firebase"
+var (
+	testUrl  = ""
+	testAuth = ""
 )
 
 type Name struct {
@@ -23,159 +27,276 @@ func nameAlloc() interface{} {
 	return &Name{}
 }
 
-/*
-Set the two variables below and set them to your own
-Firebase URL and credentials (optional) if you're forking the code
-and want to test your changes.
-*/
+func fakeServer(handler http.Handler) (*httptest.Server, *client) {
+	testServer := httptest.NewServer(handler)
 
-// enter your firebase credentials for testing.
-var (
-	testUrl  string = os.Getenv("FIREBASE_TEST_URL")
-	testAuth string = os.Getenv("FIREBASE_TEST_AUTH")
-)
+	c := NewClient(testServer.URL, testAuth, nil)
+	testClient, isClient := c.(*client)
+	Expect(isClient).To(BeTrue())
 
-func TestValue(t *testing.T) {
-	client := firebase.NewClient(testUrl+"/tests", testAuth, nil)
-
-	var r map[string]interface{}
-	err := client.Value(&r)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if r == nil {
-		t.Fatalf("No values returned from the server\n")
-	}
+	return testServer, testClient
 }
 
-func TestChild(t *testing.T) {
-	client := firebase.NewClient(testUrl+"/tests", testAuth, nil)
+var _ = Describe("Transforming client urls/queries", func() {
+	var (
+		c        *client
+		isClient bool
+		testURL  string = "https://who.cares.com"
+	)
 
-	r := client.Child("")
+	BeforeEach(func() {
+		c, isClient = NewClient(testURL, testAuth, nil).(*client)
+		Expect(isClient).To(BeTrue())
+	})
 
-	if r == nil {
-		t.Fatalf("No child returned from the server\n")
-	}
-}
+	It("Adds the child path to the returned client object", func() {
+		child, isClient := c.Child("child").(*client)
+		Expect(isClient).To(BeTrue())
 
-func TestPush(t *testing.T) {
-	client := firebase.NewClient(testUrl+"/tests", testAuth, nil)
+		Expect(child.url).To(Equal(testURL + "/child"))
+	})
 
-	name := &Name{First: "FirstName", Last: "LastName"}
+	It("Sets a query string param to ask for a shallow object", func() {
+		shallow, isClient := c.Shallow().(*client)
+		Expect(isClient).To(BeTrue())
 
-	r, err := client.Push(name, nil)
+		Expect(shallow.params["shallow"]).To(Equal("true"))
+	})
 
-	if err != nil {
-		t.Fatalf("%v\n", err)
-	}
+	It("Retrieves the key of a client", func() {
+		Expect(c.Key()).To(Equal(""))
+		Expect(c.Child("test").Key()).To(Equal("test"))
+		Expect(c.Child("/a/b/c/d/e/f/g").Key()).To(Equal("g"))
+	})
+})
 
-	if r == nil {
-		t.Fatalf("No client returned from the server\n")
-	}
+var _ = Describe("Manipulating values from firebase", func() {
+	var (
+		testResource Name
+		testServer   *httptest.Server
+		testClient   *client
+		handler      func(w http.ResponseWriter, r *http.Request)
+	)
 
-	newName := &Name{}
-	c2 := firebase.NewClient(r.String(), testAuth, nil)
-	c2.Value(newName)
-	if !reflect.DeepEqual(name, newName) {
-		t.Errorf("Expected %v to equal %v", name, newName)
-	}
-}
+	BeforeEach(func() {
+		testResource = Name{First: "FirstName", Last: "LastName"}
+	})
 
-func TestSet(t *testing.T) {
-	c1 := firebase.NewClient(testUrl+"/tests/users", testAuth, nil)
+	JustBeforeEach(func() {
+		testServer, testClient = fakeServer(http.HandlerFunc(handler))
+	})
 
-	name := &Name{First: "First", Last: "last"}
-	c2, _ := c1.Push(name, nil)
+	Context("Retrieving a value from firebase", func() {
+		BeforeEach(func() {
+			handler = func(w http.ResponseWriter, r *http.Request) {
+				Expect(r.Method).To(Equal("GET"))
+				fmt.Fprintln(w, `{"bru": "haha"}`)
+			}
+		})
 
-	newName := &Name{First: "NewFirst", Last: "NewLast"}
-	r, err := c2.Set("", newName, map[string]string{"print": "silent"})
+		It("Retrieves the expected value from the resource path", func() {
+			var r map[string]interface{}
+			err := testClient.Child("").Value(&r)
+			Expect(err).To(BeNil())
 
-	if err != nil {
-		t.Fatalf("%v\n", err)
-	}
+			Expect(len(r)).To(Equal(1))
+			Expect(r["bru"]).To(Equal("haha"))
+		})
+	})
 
-	if r == nil {
-		t.Fatalf("No client returned from the server\n")
-	}
-}
+	Context("Pushing a new value to firebase", func() {
+		var (
+			pushedName string = "baloo"
+		)
 
-func TestUpdate(t *testing.T) {
-	c1 := firebase.NewClient(testUrl+"/tests/users", testAuth, nil)
+		BeforeEach(func() {
+			handler = func(w http.ResponseWriter, r *http.Request) {
+				Expect(r.Method).To(Equal("POST"))
 
-	name := &Name{First: "First", Last: "last"}
-	c2, _ := c1.Push(name, nil)
+				var pushed Name
+				defer r.Body.Close()
 
-	newName := &Name{Last: "NewLast"}
-	err := c2.Update("", newName, nil)
+				decoder := json.NewDecoder(r.Body)
+				err := decoder.Decode(&pushed)
+				Expect(err).To(BeNil())
+				Expect(pushed).To(Equal(testResource))
 
-	if err != nil {
-		t.Fatalf("%v\n", err)
-	}
-}
+				fmt.Fprintf(w, `{"name": "%s"}`, pushedName)
+			}
+		})
 
-func TestRemovet(t *testing.T) {
-	c1 := firebase.NewClient(testUrl+"/tests/users", testAuth, nil)
+		It("Pushes the new resource and returns a matching client", func() {
+			name := &testResource
 
-	name := &Name{First: "First", Last: "last"}
-	c2, _ := c1.Push(name, nil)
+			response, err := testClient.Child("path").Push(name, nil)
+			Expect(err).To(BeNil())
 
-	err := c2.Remove("", nil)
-	if err != nil {
-		t.Fatalf("%v\n", err)
-	}
+			responseClient, isClient := response.(*client)
+			Expect(isClient).To(BeTrue())
+			Expect(responseClient.url).To(Equal(testServer.URL + "/path/" +
+				pushedName))
+		})
+	})
 
-	var val map[string]interface{}
-	c3 := firebase.NewClient(c2.String(), testAuth, nil)
-	err = c3.Value(&val)
-	if err != nil {
-		t.Error(err)
-	}
+	Context("Setting an existing value in firebase", func() {
+		var (
+			newName Name   = Name{First: "NewFirst", Last: "NewLast"}
+			setPath string = "set"
+		)
 
-	if len(val) != 0 {
-		t.Errorf("Expected %s to be removed, was %v", c2.String(), val)
-	}
-}
+		BeforeEach(func() {
+			handler = func(w http.ResponseWriter, r *http.Request) {
+				Expect(r.Method).To(Equal("PUT"))
 
-func TestRules(t *testing.T) {
-	client := firebase.NewClient(testUrl, testAuth, nil)
+				var setValue Name
+				defer r.Body.Close()
 
-	r, err := client.Rules(nil)
+				decoder := json.NewDecoder(r.Body)
+				err := decoder.Decode(&setValue)
+				Expect(err).To(BeNil())
+				Expect(setValue).To(Equal(newName))
+			}
+		})
 
-	if err != nil {
-		t.Fatalf("Error retrieving rules: %v\n", err)
-	}
+		It("Overwrites the value of the existing resource", func() {
+			response, err := testClient.Set(setPath, &newName, nil)
+			Expect(err).To(BeNil())
 
-	if r == nil {
-		t.Fatalf("No child returned from the server\n")
-	}
-}
+			responseClient, isClient := response.(*client)
+			Expect(isClient).To(BeTrue())
+			Expect(responseClient.url).To(Equal(testServer.URL + "/" +
+				setPath))
+		})
+	})
 
-func TestSetRules(t *testing.T) {
-	client := firebase.NewClient(testUrl, testAuth, nil)
+	Context("Update an existing value in firebase", func() {
+		var (
+			updatedName Name   = Name{Last: "NewLast"}
+			updatePath  string = "update"
+		)
 
-	rules := &firebase.Rules{
-		"rules": map[string]interface{}{
-			".read":  "auth.username == 'admin'",
-			".write": "auth.username == 'admin'",
-			"ordered": map[string]interface{}{
-				".indexOn": []string{"First"},
-				"kids": map[string]interface{}{
-					".indexOn": []string{"Age"},
+		BeforeEach(func() {
+			handler = func(w http.ResponseWriter, r *http.Request) {
+				Expect(r.Method).To(Equal("PATCH"))
+				Expect(r.URL.String()).To(Equal("/" + updatePath + ".json"))
+
+				var updateValue Name
+				defer r.Body.Close()
+
+				decoder := json.NewDecoder(r.Body)
+				err := decoder.Decode(&updateValue)
+				Expect(err).To(BeNil())
+				Expect(updateValue).To(Equal(updatedName))
+			}
+		})
+
+		It("Changes the value of the existing resource", func() {
+			err := testClient.Update(updatePath, &updatedName, nil)
+			Expect(err).To(BeNil())
+		})
+	})
+
+	Context("Delete an existing value in firebase", func() {
+		var (
+			rmPath string = "update"
+		)
+
+		BeforeEach(func() {
+			handler = func(w http.ResponseWriter, r *http.Request) {
+				Expect(r.Method).To(Equal("DELETE"))
+				Expect(r.URL.String()).To(Equal("/" + rmPath + ".json"))
+			}
+		})
+
+		It("Deletes the resource", func() {
+			err := testClient.Remove(rmPath, nil)
+			Expect(err).To(BeNil())
+		})
+	})
+
+	Context("Reading the security rules", func() {
+		var testRules Rules = make(map[string]interface{})
+
+		BeforeEach(func() {
+			testRules["rules"] = "anything goes"
+
+			handler = func(w http.ResponseWriter, r *http.Request) {
+				Expect(r.Method).To(Equal("GET"))
+				Expect(r.URL.String()).To(Equal("/.settings/rules.json"))
+
+				encoder := json.NewEncoder(w)
+				err := encoder.Encode(testRules)
+				Expect(err).To(BeNil())
+			}
+		})
+
+		It("Retrieves the firebase's security rules", func() {
+			rules, err := testClient.Rules(nil)
+			Expect(err).To(BeNil())
+			Expect(*rules).To(Equal(testRules))
+		})
+	})
+
+	Context("Changing the firebase's security rules", func() {
+		var newRules Rules
+
+		BeforeEach(func() {
+			newRules = Rules{
+				"rules": map[string]interface{}{
+					".read":  "auth.username == 'admin'",
+					".write": "auth.username == 'admin'",
+					"ordered": map[string]interface{}{
+						".indexOn": []string{"First"},
+						"kids": map[string]interface{}{
+							".indexOn": []string{"Age"},
+						},
+					},
 				},
-			},
-		},
-	}
+			}
 
-	err := client.SetRules(rules, nil)
+			handler = func(w http.ResponseWriter, r *http.Request) {
+				var changedRules Rules
+				Expect(r.Method).To(Equal("PUT"))
+				Expect(r.URL.String()).To(Equal("/.settings/rules.json"))
 
-	if err != nil {
-		t.Fatalf("Error setting rules: %v\n", err)
-	}
-}
+				defer r.Body.Close()
+				decoder := json.NewDecoder(r.Body)
+				err := decoder.Decode(&changedRules)
+				Expect(err).To(BeNil())
+			}
+		})
+
+		It("Changes the security rules", func() {
+			err := testClient.SetRules(&newRules, nil)
+			Expect(err).To(BeNil())
+		})
+	})
+})
+
+var _ = Describe("Firebase timestamps", func() {
+	It("Marshals a timestamp into ms since the epoch", func() {
+		ts := Timestamp(time.Now())
+		marshaled, err := json.Marshal(&ts)
+		Expect(err).To(BeNil())
+
+		unmarshaledTs := Timestamp{}
+		err = json.Unmarshal(marshaled, &unmarshaledTs)
+		Expect(err).To(BeNil())
+
+		// Compare unix timestamps as we lose some fidelity in the nanoseconds
+		Expect(time.Time(ts).Unix()).To(Equal(time.Time(unmarshaledTs).Unix()))
+	})
+
+	It("Marhsals a server-side timestamp", func() {
+		text, err := json.Marshal(ServerTimestamp)
+		Expect(err).To(BeNil())
+		Expect(string(text)).To(Equal(`{".sv":"timestamp"}`))
+	})
+})
 
 func TestOrderBy(t *testing.T) {
-	client := firebase.NewClient(testUrl, testAuth, nil).Child("ordered")
+	t.Skip("needs httptest")
+	client := NewClient(testUrl, testAuth, nil).Child("ordered")
 	defer client.Remove("", nil)
 
 	names := []*Name{
@@ -191,7 +312,7 @@ func TestOrderBy(t *testing.T) {
 	}
 
 	i := 0
-	for n := range client.OrderBy(firebase.KeyProp).Iterator(nameAlloc) {
+	for n := range client.OrderBy(KeyProp).Iterator(nameAlloc) {
 		if n.Value.(*Name).First != names[i].First {
 			t.Fatalf("Key order was not delivered")
 		}
@@ -235,38 +356,9 @@ func TestOrderBy(t *testing.T) {
 	}
 }
 
-func TestTimestamp(t *testing.T) {
-	ts := firebase.Timestamp(time.Now())
-	marshaled, err := json.Marshal(&ts)
-	if err != nil {
-		t.Fatalf("Could not marshal a timestamp to json: %s\n", err)
-	}
-	unmarshaledTs := firebase.Timestamp{}
-	err = json.Unmarshal(marshaled, &unmarshaledTs)
-	if err != nil {
-		t.Fatalf("Could not unmarshal a timestamp to json: %s\n", err)
-	}
-	// Compare unix timestamps as we lose some fidelity in the nanoseconds
-	if time.Time(ts).Unix() != time.Time(unmarshaledTs).Unix() {
-		t.Fatalf("Unmarshaled time %s not equivalent to marshaled time %s",
-			unmarshaledTs,
-			ts,
-		)
-	}
-}
-
-func TestServerTimestamp(t *testing.T) {
-	b, err := json.Marshal(firebase.ServerTimestamp)
-	if err != nil {
-		t.Fatalf("Could not marshal server timestamp: %s\n", err)
-	}
-	if string(b) != `{".sv":"timestamp"}` {
-		t.Fatalf("Unexpected timestamp json value: %s\n", b)
-	}
-}
-
 func TestIterator(t *testing.T) {
-	client := firebase.NewClient(testUrl+"/test-iterator", testAuth, nil)
+	t.Skip("needs httptest")
+	client := NewClient(testUrl+"/test-iterator", testAuth, nil)
 	defer client.Remove("", nil)
 	names := []Name{
 		{First: "FirstName", Last: "LastName"},
@@ -292,50 +384,7 @@ func TestIterator(t *testing.T) {
 	}
 }
 
-func TestShallow(t *testing.T) {
-	client := firebase.NewClient(testUrl+"/test-shallow", testAuth, nil)
-	defer client.Remove("", nil)
-	client.Set("one", 1, nil)
-	client.Set("two", 2, nil)
-	keys, err := client.Shallow()
-	if err != nil {
-		t.Errorf("Error when calling shallow: %s\n", err)
-	}
-	if !reflect.DeepEqual(keys, []string{"one", "two"}) {
-		t.Errorf("keys (%v) were not correct\n", keys)
-	}
-}
-
-func TestKey(t *testing.T) {
-	client := firebase.NewClient(testUrl+"/test", testAuth, nil)
-	if client.Key() != "test" {
-		t.Errorf("Key should have been test, was %s\n", client.Key())
-	}
-
-	client = firebase.NewClient(testUrl, testAuth, nil)
-	if client.Key() != "" {
-		t.Errorf("Key should have been empty, was %s\n", client.Key())
-	}
-
-	client = client.Child("/a/b/c/d/e/f/g")
-	if client.Key() != "g" {
-		t.Errorf("Key should have been 'g', was %s\n", client.Key())
-	}
-}
-
-func TestMockable(t *testing.T) {
-	mockCtrl := gomock.NewController(t)
-	defer mockCtrl.Finish()
-
-	mockFire := mock_firebase.NewMockClient(mockCtrl)
-	mockFire.EXPECT().Child("test")
-	mockFire.Child("test")
-}
-
-func TestMain(m *testing.M) {
-	if testUrl == "" || testAuth == "" {
-		fmt.Printf("You need to set FIREBASE_TEST_URL and FIREBASE_TEST_AUTH\n")
-		os.Exit(1)
-	}
-	os.Exit(m.Run())
+func TestFirebase(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Firebase Suite")
 }
