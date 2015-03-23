@@ -85,6 +85,10 @@ var _ = Describe("Manipulating values from firebase", func() {
 		testServer, testClient = fakeServer(http.HandlerFunc(handler))
 	})
 
+	AfterEach(func() {
+		testServer.Close()
+	})
+
 	Context("Retrieving a value from firebase", func() {
 		BeforeEach(func() {
 			handler = func(w http.ResponseWriter, r *http.Request) {
