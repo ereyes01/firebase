@@ -67,17 +67,25 @@ func (f *FirebaseError) Error() string {
 // the Timestamp type.
 var ServerTimestamp ServerValue = ServerValue{"timestamp"}
 
-// Api is the internal interface for interacting with Firebase.
-// Consumers of this package can mock this interface for testing purposes, regular
-// consumers can just use the default implementation and can ignore this completely.
-// Arguments are as follows:
-//  - `method`: The http method for this call
-//  - `path`: The full firebase url to call
-//  - `body`: Data to be marshalled to JSON (it's the responsibility of Call to do the marshalling and unmarshalling)
-//  - `params`: Additional parameters to be passed to firebase
-//  - `dest`: The object to save the unmarshalled response body to.
-//    It's up to this method to unmarshal correctly, the default implemenation just uses `json.Unmarshal`
+// Api is the internal interface for interacting with Firebase. The internal
+// implementation of this interface is responsible for all HTTP operations that
+// communicate with Firebase.
+//
+// Users of this library can implement their own Api-conformant types for
+// testing purposes. To use your own test Api type, pass it in to the NewClient
+// function.
 type Api interface {
+	// Call is responsible for performing HTTP transactions such as GET, POST,
+	// PUT, PATCH, and DELETE. It is used to communicate with Firebase by all
+	// of the Client methods.
+	//
+	// Arguments are as follows:
+	//  - `method`: The http method for this call
+	//  - `path`: The full firebase url to call
+	//  - `body`: Data to be marshalled to JSON (it's the responsibility of Call to do the marshalling and unmarshalling)
+	//  - `params`: Additional parameters to be passed to firebase
+	//  - `dest`: The object to save the unmarshalled response body to.
+	//    It's up to this method to unmarshal correctly, the default implemenation just uses `json.Unmarshal`
 	Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error
 }
 
