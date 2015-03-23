@@ -7,9 +7,9 @@ Helper library for invoking the Firebase REST API.
 
 ### Usage
 
-[Read the godocs](https://godoc.org/github.com/ereyes01/firebase)
+[![GoDoc](http://img.shields.io/badge/godoc-reference-blue.svg?style=flat)](https://godoc.org/github.com/ereyes01/firebase)
 
-### Test
+### Run the Tests
 
 - Setup your GOPATH and workspace. If you are new to Go and you're not sure how
 to do this, read [How to Write Go Code](https://golang.org/doc/code.html).
