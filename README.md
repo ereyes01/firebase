@@ -15,7 +15,7 @@ Helper library for invoking the Firebase REST API.
 to do this, read [How to Write Go Code](https://golang.org/doc/code.html).
 - Install test dependencies (only needed once per workspace):
 ```sh
-go test -i github.com/ereyes01/firebase
+go get -t github.com/ereyes01/firebase
 ```
 - To run the tests:
 ```sh
