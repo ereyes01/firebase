@@ -1,22 +1,38 @@
 package firebase
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
-	"github.com/facebookgo/httpcontrol"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
+
+	"github.com/facebookgo/httpcontrol"
 )
 
+// StreamData represents the unmarshalled JSON payload of each EventSource
+// protocol message
+type StreamData struct {
+	// The Firebase Path that was changed
+	Path string
+
+	// The raw JSON data that was changed within the path
+	RawData json.RawMessage `json:"data"`
+}
+
 // StreamEvent represents an EventSource protocol message sent by Firebase when
-// streaming changes from a localtion.
+// streaming changes from a location.
 type StreamEvent struct {
 	// Event is the type of event, denoted in the protocol by "event: text"
 	Event string
 
 	// Data is the payload of the event, denoted in the protocol by "data: text"
-	Data string
+	Data *StreamData
+
+	// Error is true when the stream's connection has been terminated.
+	Error error
 }
 
 // Api is the internal interface for interacting with Firebase. The internal
@@ -50,7 +66,7 @@ type Api interface {
 	//  - `stop`: a channel that makes Stream stop listening for events and return when it receives anything
 	//
 	// Return values:
-	//  - `<-chan StreamEvent`: A buffered channel that emits events from Firebase
+	//  - `<-StreamEvent`: A channels that emits events as they arrive from the stream
 	//  - `error`: Non-nil if an error is encountered setting up the listener.
 	Stream(path, auth string, body interface{}, params map[string]string, stop <-chan bool) (<-chan StreamEvent, error)
 }
@@ -66,9 +82,7 @@ var (
 	readWriteTimeout = time.Duration(10 * time.Second) // timeout for http read/write
 )
 
-// Call invokes the appropriate HTTP method on a given Firebase URL.
-func (f *firebaseAPI) Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error {
-
+func doFirebaseRequest(method, path, auth, accept string, body interface{}, params map[string]string) (*http.Response, error) {
 	// Every path needs to end in .json for the Firebase REST API
 	path += ".json"
 	qs := url.Values{}
@@ -90,30 +104,40 @@ func (f *firebaseAPI) Call(method, path, auth string, body interface{}, params m
 
 	encodedBody, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	req, err := http.NewRequest(method, path, bytes.NewReader(encodedBody))
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	if accept != "" {
+		req.Header.Add("Accept", accept)
 	}
 
 	req.Close = true
 
-	res, err := httpClient.Do(req)
+	return httpClient.Do(req)
+}
+
+// Call invokes the appropriate HTTP method on a given Firebase URL.
+func (f *firebaseAPI) Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error {
+	response, err := doFirebaseRequest(method, path, auth, "", body, params)
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
 
-	decoder := json.NewDecoder(res.Body)
-	if res.StatusCode >= 400 {
+	defer response.Body.Close()
+
+	decoder := json.NewDecoder(response.Body)
+	if response.StatusCode >= 400 {
 		err := &FirebaseError{}
 		decoder.Decode(err)
 		return err
 	}
 
-	if dest != nil && res.ContentLength != 0 {
+	if dest != nil && response.ContentLength != 0 {
 		err = decoder.Decode(dest)
 		if err != nil {
 			return err
@@ -137,5 +161,52 @@ func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Durati
 // Stream implements an SSE/Event Source client that watches for changes at a
 // given Firebase location.
 func (f *firebaseAPI) Stream(path, auth string, body interface{}, params map[string]string, stop <-chan bool) (<-chan StreamEvent, error) {
-	return nil, nil
+	response, err := doFirebaseRequest("GET", path, auth, "text/event-stream",
+		body, params)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		<-stop
+		response.Body.Close()
+	}()
+
+	events := make(chan StreamEvent, 100)
+
+	go func() {
+		var err error
+
+		defer func() {
+			closedEvent := StreamEvent{Error: err}
+			events <- closedEvent
+			close(events)
+		}()
+
+		scanner := bufio.NewScanner(response.Body)
+		firstLine := ""
+
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			// we want to process 2 lines at a time
+			if firstLine == "" {
+				firstLine = line
+				continue
+			}
+
+			event := StreamEvent{}
+			event.Event = strings.Replace(firstLine, "event: ", "", 1)
+
+			data := strings.Replace(line, "data: ", "", 1)
+			event.Error = json.Unmarshal([]byte(data), &event.Data)
+
+			events <- event
+			firstLine = ""
+		}
+
+		err = scanner.Err()
+	}()
+
+	return events, nil
 }
