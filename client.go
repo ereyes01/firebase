@@ -4,6 +4,7 @@ package firebase
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -62,64 +63,6 @@ func (f *FirebaseError) Error() string {
 // the Timestamp type.
 var ServerTimestamp ServerValue = ServerValue{"timestamp"}
 
-// Rules is the structure for security rules.
-type Rules map[string]interface{}
-
-type Client interface {
-	// Returns the absolute URL path for the client
-	String() string
-
-	// Returns the last part of the URL path for the client.
-	Key() string
-
-	//Gets the value referenced by the client and unmarshals it into
-	// the passed in destination.
-	Value(destination interface{}) error
-
-	// Shallow returns a list of keys at a particular location
-	// Only supports objects, unlike the REST artument which supports
-	// literals. If the location is a literal, use Client#Value()
-	Shallow() Client
-
-	// Child returns a reference to the child specified by `path`. This does not
-	// actually make a request to firebase, but you can then manipulate the reference
-	// by calling one of the other methods (such as `Value`, `Update`, or `Set`).
-	Child(path string) Client
-
-	// Query functions. They map directly to the Firebase operations.
-	// https://www.firebase.com/docs/rest/guide/retrieving-data.html#section-rest-queries
-	OrderBy(prop string) Client
-	EqualTo(value string) Client
-	StartAt(value string) Client
-	EndAt(value string) Client
-
-	// Creates a new value under this reference.
-	// Returns a reference to the newly created value.
-	// https://www.firebase.com/docs/web/api/firebase/push.html
-	Push(value interface{}, params map[string]string) (Client, error)
-
-	// Overwrites the value at the specified path and returns a reference
-	// that points to the path specified by `path`
-	Set(path string, value interface{}, params map[string]string) (Client, error)
-
-	// Update performs a partial update with the given value at the specified path.
-	// Returns an error if the update could not be performed.
-	// https://www.firebase.com/docs/web/api/firebase/update.html
-	Update(path string, value interface{}, params map[string]string) error
-
-	// Remove deletes the data at the current reference.
-	// https://www.firebase.com/docs/web/api/firebase/remove.html
-	Remove(path string, params map[string]string) error
-
-	// Rules returns the security rules for the database.
-	// https://www.firebase.com/docs/rest/api/#section-security-rules
-	Rules(params map[string]string) (*Rules, error)
-
-	// SetRules overwrites the existing security rules with the new rules given.
-	// https://www.firebase.com/docs/rest/api/#section-security-rules
-	SetRules(rules *Rules, params map[string]string) error
-}
-
 // This is the actual default implementation
 type client struct {
 	// The ordering being enforced on this client
@@ -167,6 +110,54 @@ func (c *client) Value(destination interface{}) error {
 		return err
 	}
 	return nil
+}
+
+func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan StreamEvent, <-chan error, error) {
+	events, err := c.api.Stream(c.url, c.auth, nil, c.params, stop)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	unmarshalledEvents := make(chan StreamEvent, 1000)
+	errs := make(chan error)
+
+	go func() {
+		defer func() {
+			close(unmarshalledEvents)
+			close(errs)
+		}()
+
+	loop:
+		for event := range events {
+			switch event.Event {
+			case "patch", "put":
+				// usually a JSON parse error or something occurred if nil
+				if event.Data == nil {
+					unmarshalledEvents <- event
+					break
+				}
+
+				object, err := unmarshaller(event.Data.RawData)
+				if err != nil {
+					event.Error = err
+				} else {
+					event.Data.Object = object
+				}
+
+				unmarshalledEvents <- event
+			case "keep-alive":
+				break
+			case "cancel":
+				errs <- errors.New("Permission Denied")
+				break loop
+			case "auth_revoked":
+				errs <- errors.New("Auth Token Revoked")
+				break loop
+			}
+		}
+	}()
+
+	return unmarshalledEvents, errs, nil
 }
 
 func (c *client) Shallow() Client {

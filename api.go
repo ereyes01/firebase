@@ -12,65 +12,6 @@ import (
 	"github.com/facebookgo/httpcontrol"
 )
 
-// StreamData represents the unmarshalled JSON payload of each EventSource
-// protocol message
-type StreamData struct {
-	// The Firebase Path that was changed
-	Path string
-
-	// The raw JSON data that was changed within the path
-	RawData json.RawMessage `json:"data"`
-}
-
-// StreamEvent represents an EventSource protocol message sent by Firebase when
-// streaming changes from a location.
-type StreamEvent struct {
-	// Event is the type of event, denoted in the protocol by "event: text"
-	Event string
-
-	// Data is the payload of the event, denoted in the protocol by "data: text"
-	Data *StreamData
-
-	// Error is true when the stream's connection has been terminated.
-	Error error
-}
-
-// Api is the internal interface for interacting with Firebase. The internal
-// implementation of this interface is responsible for all HTTP operations that
-// communicate with Firebase.
-//
-// Users of this library can implement their own Api-conformant types for
-// testing purposes. To use your own test Api type, pass it in to the NewClient
-// function.
-type Api interface {
-	// Call is responsible for performing HTTP transactions such as GET, POST,
-	// PUT, PATCH, and DELETE. It is used to communicate with Firebase by all
-	// of the Client methods, except for Watch.
-	//
-	// Arguments are as follows:
-	//  - `method`: The http method for this call
-	//  - `path`: The full firebase url to call
-	//  - `body`: Data to be marshalled to JSON (it's the responsibility of Call to do the marshalling and unmarshalling)
-	//  - `params`: Additional parameters to be passed to firebase
-	//  - `dest`: The object to save the unmarshalled response body to.
-	//    It's up to this method to unmarshal correctly, the default implemenation just uses `json.Unmarshal`
-	Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error
-
-	// Stream is responsible for implementing a SSE/Event Source client that
-	// communicates with Firebase to watch changes to a location in real-time.
-	//
-	// Arguments are as follows:
-	//  - `path`: The full firebase url to call
-	//  - `body`: Data to be marshalled to JSON
-	//  - `params`: Additional parameters to be passed to firebase
-	//  - `stop`: a channel that makes Stream stop listening for events and return when it receives anything
-	//
-	// Return values:
-	//  - `<-StreamEvent`: A channels that emits events as they arrive from the stream
-	//  - `error`: Non-nil if an error is encountered setting up the listener.
-	Stream(path, auth string, body interface{}, params map[string]string, stop <-chan bool) (<-chan StreamEvent, error)
-}
-
 // httpClient is the HTTP client used to make calls to Firebase with the default API
 var httpClient = newTimeoutClient(connectTimeout, readWriteTimeout)
 
