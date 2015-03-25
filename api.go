@@ -15,15 +15,20 @@ import (
 // httpClient is the HTTP client used to make calls to Firebase with the default API
 var httpClient = newTimeoutClient(connectTimeout, readWriteTimeout)
 
+// streamClient is used as the HTTP client for streaming Event Source protocol
+// messages from Firebase
+var streamClient = newTimeoutClient(connectTimeout, streamTimeout)
+
 // f is the internal implementation of the Firebase API client.
 type firebaseAPI struct{}
 
 var (
 	connectTimeout   = time.Duration(30 * time.Second) // timeout for http connection
 	readWriteTimeout = time.Duration(10 * time.Second) // timeout for http read/write
+	streamTimeout    = time.Duration(0)                // never time out reading from a stream
 )
 
-func doFirebaseRequest(method, path, auth, accept string, body interface{}, params map[string]string) (*http.Response, error) {
+func doFirebaseRequest(client *http.Client, method, path, auth, accept string, body interface{}, params map[string]string) (*http.Response, error) {
 	// Every path needs to end in .json for the Firebase REST API
 	path += ".json"
 	qs := url.Values{}
@@ -59,12 +64,13 @@ func doFirebaseRequest(method, path, auth, accept string, body interface{}, para
 
 	req.Close = true
 
-	return httpClient.Do(req)
+	return client.Do(req)
 }
 
 // Call invokes the appropriate HTTP method on a given Firebase URL.
 func (f *firebaseAPI) Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error {
-	response, err := doFirebaseRequest(method, path, auth, "", body, params)
+	response, err := doFirebaseRequest(httpClient, method, path, auth, "",
+		body, params)
 	if err != nil {
 		return err
 	}
@@ -102,8 +108,8 @@ func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Durati
 // Stream implements an SSE/Event Source client that watches for changes at a
 // given Firebase location.
 func (f *firebaseAPI) Stream(path, auth string, body interface{}, params map[string]string, stop <-chan bool) (<-chan StreamEvent, error) {
-	response, err := doFirebaseRequest("GET", path, auth, "text/event-stream",
-		body, params)
+	response, err := doFirebaseRequest(streamClient, "GET", path, auth,
+		"text/event-stream", body, params)
 	if err != nil {
 		return nil, err
 	}
