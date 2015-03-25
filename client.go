@@ -3,16 +3,12 @@
 package firebase
 
 import (
-	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"time"
-
-	"github.com/facebookgo/httpcontrol"
 )
 
 var keyExtractor = regexp.MustCompile(`https://.*/([^/]+)/?$`)
@@ -67,83 +63,6 @@ func (f *FirebaseError) Error() string {
 // the Timestamp type.
 var ServerTimestamp ServerValue = ServerValue{"timestamp"}
 
-// Api is the internal interface for interacting with Firebase. The internal
-// implementation of this interface is responsible for all HTTP operations that
-// communicate with Firebase.
-//
-// Users of this library can implement their own Api-conformant types for
-// testing purposes. To use your own test Api type, pass it in to the NewClient
-// function.
-type Api interface {
-	// Call is responsible for performing HTTP transactions such as GET, POST,
-	// PUT, PATCH, and DELETE. It is used to communicate with Firebase by all
-	// of the Client methods.
-	//
-	// Arguments are as follows:
-	//  - `method`: The http method for this call
-	//  - `path`: The full firebase url to call
-	//  - `body`: Data to be marshalled to JSON (it's the responsibility of Call to do the marshalling and unmarshalling)
-	//  - `params`: Additional parameters to be passed to firebase
-	//  - `dest`: The object to save the unmarshalled response body to.
-	//    It's up to this method to unmarshal correctly, the default implemenation just uses `json.Unmarshal`
-	Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error
-}
-
-type Client interface {
-	// Returns the absolute URL path for the client
-	String() string
-
-	// Returns the last part of the URL path for the client.
-	Key() string
-
-	//Gets the value referenced by the client and unmarshals it into
-	// the passed in destination.
-	Value(destination interface{}) error
-
-	// Shallow returns a list of keys at a particular location
-	// Only supports objects, unlike the REST artument which supports
-	// literals. If the location is a literal, use Client#Value()
-	Shallow() Client
-
-	// Child returns a reference to the child specified by `path`. This does not
-	// actually make a request to firebase, but you can then manipulate the reference
-	// by calling one of the other methods (such as `Value`, `Update`, or `Set`).
-	Child(path string) Client
-
-	// Query functions. They map directly to the Firebase operations.
-	// https://www.firebase.com/docs/rest/guide/retrieving-data.html#section-rest-queries
-	OrderBy(prop string) Client
-	EqualTo(value string) Client
-	StartAt(value string) Client
-	EndAt(value string) Client
-
-	// Creates a new value under this reference.
-	// Returns a reference to the newly created value.
-	// https://www.firebase.com/docs/web/api/firebase/push.html
-	Push(value interface{}, params map[string]string) (Client, error)
-
-	// Overwrites the value at the specified path and returns a reference
-	// that points to the path specified by `path`
-	Set(path string, value interface{}, params map[string]string) (Client, error)
-
-	// Update performs a partial update with the given value at the specified path.
-	// Returns an error if the update could not be performed.
-	// https://www.firebase.com/docs/web/api/firebase/update.html
-	Update(path string, value interface{}, params map[string]string) error
-
-	// Remove deletes the data at the current reference.
-	// https://www.firebase.com/docs/web/api/firebase/remove.html
-	Remove(path string, params map[string]string) error
-
-	// Rules returns the security rules for the database.
-	// https://www.firebase.com/docs/rest/api/#section-security-rules
-	Rules(params map[string]string) (*Rules, error)
-
-	// SetRules overwrites the existing security rules with the new rules given.
-	// https://www.firebase.com/docs/rest/api/#section-security-rules
-	SetRules(rules *Rules, params map[string]string) error
-}
-
 // This is the actual default implementation
 type client struct {
 	// The ordering being enforced on this client
@@ -162,23 +81,9 @@ type client struct {
 	params map[string]string
 }
 
-// Rules is the structure for security rules.
-type Rules map[string]interface{}
-
-// f is the internal implementation of the Firebase API client.
-type f struct{}
-
-var (
-	connectTimeout   = time.Duration(30 * time.Second) // timeout for http connection
-	readWriteTimeout = time.Duration(10 * time.Second) // timeout for http read/write
-)
-
-// httpClient is the HTTP client used to make calls to Firebase with the default API
-var httpClient = newTimeoutClient(connectTimeout, readWriteTimeout)
-
 func NewClient(root, auth string, api Api) Client {
 	if api == nil {
-		api = new(f)
+		api = new(firebaseAPI)
 	}
 
 	return &client{url: root, auth: auth, api: api}
@@ -205,6 +110,54 @@ func (c *client) Value(destination interface{}) error {
 		return err
 	}
 	return nil
+}
+
+func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan StreamEvent, <-chan error, error) {
+	events, err := c.api.Stream(c.url, c.auth, nil, c.params, stop)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	unmarshalledEvents := make(chan StreamEvent, 1000)
+	errs := make(chan error)
+
+	go func() {
+		defer func() {
+			close(unmarshalledEvents)
+			close(errs)
+		}()
+
+	loop:
+		for event := range events {
+			switch event.Event {
+			case "patch", "put":
+				// usually a JSON parse error or something occurred if nil
+				if event.Data == nil {
+					unmarshalledEvents <- event
+					break
+				}
+
+				object, err := unmarshaller(event.Data.RawData)
+				if err != nil {
+					event.Error = err
+				} else {
+					event.Data.Object = object
+				}
+
+				unmarshalledEvents <- event
+			case "keep-alive":
+				break
+			case "cancel":
+				errs <- errors.New("Permission Denied")
+				break loop
+			case "auth_revoked":
+				errs <- errors.New("Auth Token Revoked")
+				break loop
+			}
+		}
+	}()
+
+	return unmarshalledEvents, errs, nil
 }
 
 func (c *client) Shallow() Client {
@@ -332,72 +285,4 @@ func (c *client) SetRules(rules *Rules, params map[string]string) error {
 	err := c.api.Call("PUT", c.url+"/.settings/rules", c.auth, rules, params, nil)
 
 	return err
-}
-
-// Call invokes the appropriate HTTP method on a given Firebase URL.
-func (f *f) Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error {
-
-	// Every path needs to end in .json for the Firebase REST API
-	path += ".json"
-	qs := url.Values{}
-
-	// if the client has an auth, set it as a query string.
-	// the caller can also override this on a per-call basis
-	// which will happen via params below
-	if len(auth) > 0 {
-		qs.Set("auth", auth)
-	}
-
-	for k, v := range params {
-		qs.Set(k, v)
-	}
-
-	if len(qs) > 0 {
-		path += "?" + qs.Encode()
-	}
-
-	encodedBody, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest(method, path, bytes.NewReader(encodedBody))
-	if err != nil {
-		return err
-	}
-
-	req.Close = true
-
-	res, err := httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-
-	decoder := json.NewDecoder(res.Body)
-	if res.StatusCode >= 400 {
-		err := &FirebaseError{}
-		decoder.Decode(err)
-		return err
-	}
-
-	if dest != nil && res.ContentLength != 0 {
-		err = decoder.Decode(dest)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Duration) *http.Client {
-	return &http.Client{
-		Transport: &httpcontrol.Transport{
-			RequestTimeout:      readWriteTimeout,
-			DialTimeout:         connectTimeout,
-			MaxTries:            3,
-			MaxIdleConnsPerHost: 200,
-		},
-	}
 }

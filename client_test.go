@@ -2,11 +2,14 @@ package firebase
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/onsi/ginkgo/reporters"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -75,6 +78,7 @@ var _ = Describe("Manipulating values from firebase", func() {
 		testServer   *httptest.Server
 		testClient   *client
 		handler      func(w http.ResponseWriter, r *http.Request)
+		stopChannel  chan bool
 	)
 
 	BeforeEach(func() {
@@ -83,9 +87,11 @@ var _ = Describe("Manipulating values from firebase", func() {
 
 	JustBeforeEach(func() {
 		testServer, testClient = fakeServer(http.HandlerFunc(handler))
+		stopChannel = make(chan bool, 1)
 	})
 
 	AfterEach(func() {
+		close(stopChannel)
 		testServer.Close()
 	})
 
@@ -274,6 +280,206 @@ var _ = Describe("Manipulating values from firebase", func() {
 			Expect(err).To(BeNil())
 		})
 	})
+
+	Context("Watching a resource", func() {
+		var (
+			events <-chan StreamEvent
+			errs   <-chan error
+			err    error
+		)
+
+		JustBeforeEach(func() {
+			testClient = testClient.Child("").(*client)
+		})
+
+		AfterEach(func() {
+			Eventually(events).Should(BeClosed())
+			Eventually(errs).Should(BeClosed())
+		})
+
+		Context("When receiving a keep-alive event", func() {
+			BeforeEach(func() {
+				handler = func(w http.ResponseWriter, r *http.Request) {
+					verifyStreamRequest(r)
+
+					fmt.Fprintln(w, "event: keep-alive")
+					fmt.Fprintln(w, "data: null")
+				}
+			})
+
+			It("Ignores the event", func() {
+				events, errs, err = testClient.Watch(nil, stopChannel)
+				Expect(err).To(BeNil())
+				Consistently(events).ShouldNot(Receive())
+				Consistently(errs).ShouldNot(Receive())
+			})
+		})
+
+		Context("When Firebase permissions block the watched location", func() {
+			BeforeEach(func() {
+				handler = func(w http.ResponseWriter, r *http.Request) {
+					verifyStreamRequest(r)
+
+					fmt.Fprintln(w, "event: cancel")
+					fmt.Fprintln(w, "data: null")
+				}
+			})
+
+			It("Receives an error from the error channel", func() {
+				events, errs, err = testClient.Watch(nil, stopChannel)
+				Expect(err).To(BeNil())
+				Consistently(events).ShouldNot(Receive())
+				Eventually(errs).Should(Receive(MatchError("Permission Denied")))
+			})
+		})
+
+		Context("When Firebase revokes your auth token", func() {
+			BeforeEach(func() {
+				handler = func(w http.ResponseWriter, r *http.Request) {
+					verifyStreamRequest(r)
+
+					fmt.Fprintln(w, "event: auth_revoked")
+					fmt.Fprintln(w, "data: null")
+				}
+			})
+
+			It("Receives an error from the error channel", func() {
+				events, errs, err = testClient.Watch(nil, stopChannel)
+				Expect(err).To(BeNil())
+				Consistently(events).ShouldNot(Receive())
+				Eventually(errs).Should(Receive(MatchError("Auth Token Revoked")))
+			})
+		})
+
+		Context("When a resource is patched", func() {
+			BeforeEach(func() {
+				handler = func(w http.ResponseWriter, r *http.Request) {
+					verifyStreamRequest(r)
+
+					fmt.Fprintln(w, "event: patch")
+					fmt.Fprintln(w, `data: {"path": "1/2/3", "data": {"a":1}}`)
+				}
+			})
+
+			It("Receives an event with the unmarshalled object", func() {
+				type Widget struct {
+					A int
+				}
+
+				expectedData := StreamData{
+					Path:    "1/2/3",
+					RawData: []byte(`{"a":1}`),
+					Object:  Widget{A: 1},
+				}
+
+				unmarshaller := func(jsonText []byte) (interface{}, error) {
+					var w Widget
+					err := json.Unmarshal(jsonText, &w)
+					return w, err
+				}
+
+				events, errs, err = testClient.Watch(unmarshaller, stopChannel)
+				Expect(err).To(BeNil())
+
+				event := <-events
+				Expect(event.Event).To(Equal("patch"))
+				Expect(event.Error).To(BeNil())
+				Expect(*event.Data).To(Equal(expectedData))
+				Consistently(errs).ShouldNot(Receive())
+			})
+		})
+
+		Context("When a resource is put", func() {
+			BeforeEach(func() {
+				handler = func(w http.ResponseWriter, r *http.Request) {
+					verifyStreamRequest(r)
+
+					fmt.Fprintln(w, "event: put")
+					fmt.Fprintln(w, `data: {"path": "1/2/3", "data": {"a":1}}`)
+				}
+			})
+
+			It("Receives an event with the unmarshalled object", func() {
+				type Widget struct {
+					A int
+				}
+
+				expectedData := StreamData{
+					Path:    "1/2/3",
+					RawData: []byte(`{"a":1}`),
+					Object:  Widget{A: 1},
+				}
+
+				unmarshaller := func(jsonText []byte) (interface{}, error) {
+					var w Widget
+					err := json.Unmarshal(jsonText, &w)
+					return w, err
+				}
+
+				events, errs, err = testClient.Watch(unmarshaller, stopChannel)
+				Expect(err).To(BeNil())
+
+				event := <-events
+				Expect(event.Event).To(Equal("put"))
+				Expect(event.Error).To(BeNil())
+				Expect(*event.Data).To(Equal(expectedData))
+				Consistently(errs).ShouldNot(Receive())
+			})
+		})
+
+		Context("When web server sends bad JSON (hopefully never!)", func() {
+			BeforeEach(func() {
+				handler = func(w http.ResponseWriter, r *http.Request) {
+					verifyStreamRequest(r)
+
+					fmt.Fprintln(w, "event: patch")
+					fmt.Fprintln(w, "data: {you know I'm bad, I'm bad}")
+				}
+			})
+
+			It("Sends an event with a non-fatal error", func() {
+				events, errs, err = testClient.Watch(nil, stopChannel)
+				Expect(err).To(BeNil())
+
+				event := <-events
+				Expect(event.Event).To(Equal("patch"))
+				Expect(event.Error).To(HaveOccurred())
+				Consistently(errs).ShouldNot(Receive())
+			})
+		})
+
+		Context("When the unmarshaller fails", func() {
+			BeforeEach(func() {
+				handler = func(w http.ResponseWriter, r *http.Request) {
+					verifyStreamRequest(r)
+
+					fmt.Fprintln(w, "event: put")
+					fmt.Fprintln(w, `data: {"path": "1/2/3", "data": {}}`)
+				}
+			})
+
+			It("Returns an event with error, no unmarshalled object", func() {
+				expectedData := StreamData{
+					Path:    "1/2/3",
+					RawData: []byte("{}"),
+					Object:  nil,
+				}
+
+				unmarshaller := func(jsonText []byte) (interface{}, error) {
+					return 10, errors.New("crash")
+				}
+
+				events, errs, err = testClient.Watch(unmarshaller, stopChannel)
+				Expect(err).To(BeNil())
+
+				event := <-events
+				Expect(event.Event).To(Equal("put"))
+				Expect(event.Error).To(MatchError("crash"))
+				Expect(*event.Data).To(Equal(expectedData))
+				Consistently(errs).ShouldNot(Receive())
+			})
+		})
+	})
 })
 
 var _ = Describe("Firebase timestamps", func() {
@@ -299,5 +505,7 @@ var _ = Describe("Firebase timestamps", func() {
 
 func TestFirebase(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Firebase Suite")
+	junitReporter := reporters.NewJUnitReporter("junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "Firebase Suite",
+		[]Reporter{junitReporter})
 }
