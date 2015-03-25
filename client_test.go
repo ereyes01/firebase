@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/onsi/ginkgo/reporters"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -503,5 +505,7 @@ var _ = Describe("Firebase timestamps", func() {
 
 func TestFirebase(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Firebase Suite")
+	junitReporter := reporters.NewJUnitReporter("junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "Firebase Suite",
+		[]Reporter{junitReporter})
 }
