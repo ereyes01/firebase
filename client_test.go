@@ -479,6 +479,34 @@ var _ = Describe("Manipulating values from firebase", func() {
 				Consistently(errs).ShouldNot(Receive())
 			})
 		})
+
+		Context("When no unmarshaller is specified", func() {
+			BeforeEach(func() {
+				handler = func(w http.ResponseWriter, r *http.Request) {
+					verifyStreamRequest(r)
+
+					fmt.Fprintln(w, "event: put")
+					fmt.Fprintln(w, `data: {"path": "1/2/3", "data": {"a":1}}`)
+				}
+			})
+
+			It("Unmarshals the event's payload into a map", func() {
+				expectedData := StreamData{
+					Path:    "1/2/3",
+					RawData: []byte(`{"a":1}`),
+					Object:  map[string]interface{}{"a": float64(1)},
+				}
+
+				events, errs, err = testClient.Watch(nil, stopChannel)
+				Expect(err).To(BeNil())
+
+				event := <-events
+				Expect(event.Event).To(Equal("put"))
+				Expect(event.Error).To(BeNil())
+				Expect(*event.Data).To(BeEquivalentTo(expectedData))
+				Consistently(errs).ShouldNot(Receive())
+			})
+		})
 	})
 })
 

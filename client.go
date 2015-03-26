@@ -112,6 +112,12 @@ func (c *client) Value(destination interface{}) error {
 	return nil
 }
 
+var defaultUnmarshaller = func(jsonText []byte) (interface{}, error) {
+	var object map[string]interface{}
+	err := json.Unmarshal(jsonText, &object)
+	return object, err
+}
+
 func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan StreamEvent, <-chan error, error) {
 	events, err := c.api.Stream(c.url, c.auth, nil, c.params, stop)
 	if err != nil {
@@ -120,6 +126,10 @@ func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan
 
 	unmarshalledEvents := make(chan StreamEvent, 1000)
 	errs := make(chan error)
+
+	if unmarshaller == nil {
+		unmarshaller = defaultUnmarshaller
+	}
 
 	go func() {
 		defer func() {
