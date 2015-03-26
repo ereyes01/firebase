@@ -1,7 +1,14 @@
 Go Firebase
 ===========
 
-Helper library for invoking the Firebase REST API.
+Helper library for invoking the Firebase REST API. Supports the following operations:
+- Read/Set/Push values to a Firebase path
+- Streaming updates to a Firebase path via the SSE / Event Source protocol
+- Firebase-friendly timestamp handling
+
+Based on the great work of [cosn](https://github.com/cosn) and [JustinTulloss](https://github.com/JustinTulloss).
+
+### Build Status
 
 [![Circle CI](https://circleci.com/gh/ereyes01/firebase.svg?style=svg)](https://circleci.com/gh/ereyes01/firebase)
 
