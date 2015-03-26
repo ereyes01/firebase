@@ -9,15 +9,22 @@ Helper library for invoking the Firebase REST API.
 
 [![GoDoc](http://img.shields.io/badge/godoc-reference-blue.svg?style=flat)](https://godoc.org/github.com/ereyes01/firebase)
 
-### Run the Tests
+### Installation
 
 - Setup your GOPATH and workspace. If you are new to Go and you're not sure how
 to do this, read [How to Write Go Code](https://golang.org/doc/code.html).
+- Dowload the package:
+```sh
+go get github.com/ereyes01/firebase
+```
+
+### Run the Tests
+
 - Install test dependencies (only needed once per workspace):
 ```sh
 go get -t github.com/ereyes01/firebase
 ```
 - To run the tests:
 ```sh
-go test 
+go test github.com/ereyes01/firebase
 ```
