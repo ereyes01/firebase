@@ -284,7 +284,6 @@ var _ = Describe("Manipulating values from firebase", func() {
 	Context("Watching a resource", func() {
 		var (
 			events <-chan StreamEvent
-			errs   <-chan error
 			err    error
 		)
 
@@ -294,7 +293,6 @@ var _ = Describe("Manipulating values from firebase", func() {
 
 		AfterEach(func() {
 			Eventually(events).Should(BeClosed())
-			Eventually(errs).Should(BeClosed())
 		})
 
 		Context("When receiving a keep-alive event", func() {
@@ -308,10 +306,9 @@ var _ = Describe("Manipulating values from firebase", func() {
 			})
 
 			It("Ignores the event", func() {
-				events, errs, err = testClient.Watch(nil, stopChannel)
+				events, err = testClient.Watch(nil, stopChannel)
 				Expect(err).To(BeNil())
 				Consistently(events).ShouldNot(Receive())
-				Consistently(errs).ShouldNot(Receive())
 			})
 		})
 
@@ -325,11 +322,16 @@ var _ = Describe("Manipulating values from firebase", func() {
 				}
 			})
 
-			It("Receives an error from the error channel", func() {
-				events, errs, err = testClient.Watch(nil, stopChannel)
+			It("Receives an event with an error", func() {
+				events, err = testClient.Watch(nil, stopChannel)
 				Expect(err).To(BeNil())
-				Consistently(events).ShouldNot(Receive())
-				Eventually(errs).Should(Receive(MatchError("Permission Denied")))
+
+				expected := StreamEvent{
+					Event: "cancel",
+					Error: errors.New("Permission Denied"),
+				}
+
+				Eventually(events).Should(Receive(BeEquivalentTo(expected)))
 			})
 		})
 
@@ -343,11 +345,16 @@ var _ = Describe("Manipulating values from firebase", func() {
 				}
 			})
 
-			It("Receives an error from the error channel", func() {
-				events, errs, err = testClient.Watch(nil, stopChannel)
+			It("Receives an event with an error", func() {
+				events, err = testClient.Watch(nil, stopChannel)
 				Expect(err).To(BeNil())
-				Consistently(events).ShouldNot(Receive())
-				Eventually(errs).Should(Receive(MatchError("Auth Token Revoked")))
+
+				expected := StreamEvent{
+					Event: "auth_revoked",
+					Error: errors.New("Auth Token Revoked"),
+				}
+
+				Eventually(events).Should(Receive(BeEquivalentTo(expected)))
 			})
 		})
 
@@ -378,14 +385,14 @@ var _ = Describe("Manipulating values from firebase", func() {
 					return w, err
 				}
 
-				events, errs, err = testClient.Watch(unmarshaller, stopChannel)
+				events, err = testClient.Watch(unmarshaller, stopChannel)
 				Expect(err).To(BeNil())
 
 				event := <-events
 				Expect(event.Event).To(Equal("patch"))
 				Expect(event.Error).To(BeNil())
+				Expect(event.UnmarshallerError).To(BeNil())
 				Expect(*event.Data).To(Equal(expectedData))
-				Consistently(errs).ShouldNot(Receive())
 			})
 		})
 
@@ -416,14 +423,14 @@ var _ = Describe("Manipulating values from firebase", func() {
 					return w, err
 				}
 
-				events, errs, err = testClient.Watch(unmarshaller, stopChannel)
+				events, err = testClient.Watch(unmarshaller, stopChannel)
 				Expect(err).To(BeNil())
 
 				event := <-events
 				Expect(event.Event).To(Equal("put"))
 				Expect(event.Error).To(BeNil())
+				Expect(event.UnmarshallerError).To(BeNil())
 				Expect(*event.Data).To(Equal(expectedData))
-				Consistently(errs).ShouldNot(Receive())
 			})
 		})
 
@@ -438,13 +445,14 @@ var _ = Describe("Manipulating values from firebase", func() {
 			})
 
 			It("Sends an event with a non-fatal error", func() {
-				events, errs, err = testClient.Watch(nil, stopChannel)
+				events, err = testClient.Watch(nil, stopChannel)
 				Expect(err).To(BeNil())
 
 				event := <-events
 				Expect(event.Event).To(Equal("patch"))
 				Expect(event.Error).To(HaveOccurred())
-				Consistently(errs).ShouldNot(Receive())
+				Expect(event.UnmarshallerError).To(BeNil())
+				Expect(event.Data).To(BeNil())
 			})
 		})
 
@@ -461,7 +469,7 @@ var _ = Describe("Manipulating values from firebase", func() {
 			It("Returns an event with error, no unmarshalled object", func() {
 				expectedData := StreamData{
 					Path:    "1/2/3",
-					RawData: []byte("{}"),
+					RawData: []byte(`{}`),
 					Object:  nil,
 				}
 
@@ -469,14 +477,14 @@ var _ = Describe("Manipulating values from firebase", func() {
 					return 10, errors.New("crash")
 				}
 
-				events, errs, err = testClient.Watch(unmarshaller, stopChannel)
+				events, err = testClient.Watch(unmarshaller, stopChannel)
 				Expect(err).To(BeNil())
 
 				event := <-events
 				Expect(event.Event).To(Equal("put"))
-				Expect(event.Error).To(MatchError("crash"))
+				Expect(event.UnmarshallerError).To(MatchError("crash"))
+				Expect(event.Error).To(BeNil())
 				Expect(*event.Data).To(Equal(expectedData))
-				Consistently(errs).ShouldNot(Receive())
 			})
 		})
 
@@ -497,14 +505,14 @@ var _ = Describe("Manipulating values from firebase", func() {
 					Object:  map[string]interface{}{"a": float64(1)},
 				}
 
-				events, errs, err = testClient.Watch(nil, stopChannel)
+				events, err = testClient.Watch(nil, stopChannel)
 				Expect(err).To(BeNil())
 
 				event := <-events
 				Expect(event.Event).To(Equal("put"))
+				Expect(event.UnmarshallerError).To(BeNil())
 				Expect(event.Error).To(BeNil())
 				Expect(*event.Data).To(BeEquivalentTo(expectedData))
-				Consistently(errs).ShouldNot(Receive())
 			})
 		})
 	})

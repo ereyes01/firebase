@@ -118,14 +118,13 @@ var defaultUnmarshaller = func(jsonText []byte) (interface{}, error) {
 	return object, err
 }
 
-func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan StreamEvent, <-chan error, error) {
-	events, err := c.api.Stream(c.url, c.auth, nil, c.params, stop)
+func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan StreamEvent, error) {
+	rawEvents, err := c.api.Stream(c.url, c.auth, nil, c.params, stop)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	unmarshalledEvents := make(chan StreamEvent, 1000)
-	errs := make(chan error)
+	processedEvents := make(chan StreamEvent, 1000)
 
 	if unmarshaller == nil {
 		unmarshaller = defaultUnmarshaller
@@ -133,41 +132,40 @@ func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan
 
 	go func() {
 		defer func() {
-			close(unmarshalledEvents)
-			close(errs)
+			close(processedEvents)
 		}()
 
-	loop:
-		for event := range events {
+		for event := range rawEvents {
 			switch event.Event {
 			case "patch", "put":
-				// usually a JSON parse error or something occurred if nil
+				// usually a JSON parse error occurred if nil
 				if event.Data == nil {
-					unmarshalledEvents <- event
+					processedEvents <- event
 					break
 				}
 
 				object, err := unmarshaller(event.Data.RawData)
 				if err != nil {
-					event.Error = err
+					event.UnmarshallerError = err
 				} else {
 					event.Data.Object = object
 				}
 
-				unmarshalledEvents <- event
+				processedEvents <- event
 			case "keep-alive":
 				break
 			case "cancel":
-				errs <- errors.New("Permission Denied")
-				break loop
+				event.Error = errors.New("Permission Denied")
+				processedEvents <- event
 			case "auth_revoked":
-				errs <- errors.New("Auth Token Revoked")
-				break loop
+				event.Error = errors.New("Auth Token Revoked")
+				processedEvents <- event
+				return
 			}
 		}
 	}()
 
-	return unmarshalledEvents, errs, nil
+	return processedEvents, nil
 }
 
 func (c *client) Shallow() Client {

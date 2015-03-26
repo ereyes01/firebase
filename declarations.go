@@ -39,12 +39,9 @@ type Client interface {
 	//
 	// <-chan StreamEvent - A channel that sends each received event.
 	//
-	// <-chan error - A channel that sends a fatal error that causes the Watch
-	// goroutine to terminate.
-	//
-	// error - If non-nil, a fatal error was encountered starting the Watch
-	// goroutine.
-	Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan StreamEvent, <-chan error, error)
+	// error - If non-nil, a fatal error was encountered trying to start the
+	// Watch method's internal goroutine.
+	Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan StreamEvent, error)
 
 	// Shallow returns a list of keys at a particular location
 	// Only supports objects, unlike the REST artument which supports
@@ -96,23 +93,31 @@ type StreamData struct {
 	// The Firebase Path that was changed
 	Path string
 
-	// The raw JSON data that was changed within the path
+	// The raw JSON object in the data section of this event
 	RawData json.RawMessage `json:"data"`
 
-	// The unmarshalled data
+	// The unmarshalled object in the data section of this event
 	Object interface{}
 }
 
 // StreamEvent represents an EventSource protocol message sent by Firebase when
 // streaming changes from a location.
 type StreamEvent struct {
-	// Event is the type of event, denoted in the protocol by "event: text"
+	// Event is the type of event, denoted in the protocol by "event: text".
 	Event string
 
-	// Data is the payload of the event, denoted in the protocol by "data: text"
+	// Data is the payload of the event, denoted in the protocol by
+	// "data: text".
 	Data *StreamData
 
-	// Contains a non-fatal error encountered in the processing of an event
+	// UnmarshallerError contains a non-fatal error encountered when attempting
+	// to unmarshal the event's data object.
+	UnmarshallerError error
+
+	// Error contains an error value when security permissions do not
+	// allow a read of the streamed location, or when the stream connection has
+	// closed. If this error is fatal, the events channel will be subsequently
+	// closed.
 	Error error
 }
 
