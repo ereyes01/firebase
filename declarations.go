@@ -1,9 +1,5 @@
 package firebase
 
-import (
-	"encoding/json"
-)
-
 // Rules is the structure for security rules.
 type Rules map[string]interface{}
 
@@ -87,37 +83,45 @@ type Client interface {
 	SetRules(rules *Rules, params map[string]string) error
 }
 
-// StreamData represents the unmarshalled JSON payload of each EventSource
-// protocol message
-type StreamData struct {
-	// The Firebase Path that was changed
-	Path string
+// RawEvent contains the raw event and data payloads of Firebase Event Source
+// protocol messages. This is emitted by the Api's Stream method.
+type RawEvent struct {
+	// Event contains the string value of the message's "event:" section.
+	Event string
 
-	// The raw JSON object in the data section of this event
-	RawData json.RawMessage `json:"data"`
+	// Data contains the string value of the message's "data:" section.
+	Data string
 
-	// The unmarshalled object in the data section of this event
-	Object interface{}
+	// Error contains an error value when the connection was terminated
+	// abnormally.
+	Error error
 }
 
-// StreamEvent represents an EventSource protocol message sent by Firebase when
-// streaming changes from a location.
+// StreamEvent contains a parsed Firebase Event Source protocol message
+// received when a watched location changes. This is emitted by the Client's
+// Watch method.
 type StreamEvent struct {
 	// Event is the type of event, denoted in the protocol by "event: text".
 	Event string
 
-	// Data is the payload of the event, denoted in the protocol by
-	// "data: text".
-	Data *StreamData
+	// Path of the changed resource.
+	Path string
+
+	// Resource is unmarshalled by unmarshaller callback supplied to Watch.
+	Resource interface{}
+
+	// The unparsed string found the event's "data:" section
+	RawData string
 
 	// UnmarshallerError contains a non-fatal error encountered when attempting
-	// to unmarshal the event's data object.
+	// to parse the "data:" section to create the Resource object.
 	UnmarshallerError error
 
-	// Error contains an error value when security permissions do not
-	// allow a read of the streamed location, or when the stream connection has
-	// closed. If this error is fatal, the events channel will be subsequently
-	// closed.
+	// Error contains an error value when something else goes wrong (i.e.
+	// the connection is lost, permission is denied to the watched location,
+	// a corrupted event is received, etc.). If the error is fatal, the
+	// channel emitting these events will be subsequently closed after this
+	// error is delivered.
 	Error error
 }
 
@@ -152,7 +156,7 @@ type Api interface {
 	//  - `stop`: a channel that makes Stream stop listening for events and return when it receives anything
 	//
 	// Return values:
-	//  - `<-StreamEvent`: A channels that emits events as they arrive from the stream
+	//  - `<-RawEvent`: A channel that emits events as they arrive from the stream
 	//  - `error`: Non-nil if an error is encountered setting up the listener.
-	Stream(path, auth string, body interface{}, params map[string]string, stop <-chan bool) (<-chan StreamEvent, error)
+	Stream(path, auth string, body interface{}, params map[string]string, stop <-chan bool) (<-chan RawEvent, error)
 }

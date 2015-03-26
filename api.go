@@ -107,7 +107,7 @@ func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Durati
 
 // Stream implements an SSE/Event Source client that watches for changes at a
 // given Firebase location.
-func (f *firebaseAPI) Stream(path, auth string, body interface{}, params map[string]string, stop <-chan bool) (<-chan StreamEvent, error) {
+func (f *firebaseAPI) Stream(path, auth string, body interface{}, params map[string]string, stop <-chan bool) (<-chan RawEvent, error) {
 	response, err := doFirebaseRequest(streamClient, "GET", path, auth,
 		"text/event-stream", body, params)
 	if err != nil {
@@ -119,17 +119,9 @@ func (f *firebaseAPI) Stream(path, auth string, body interface{}, params map[str
 		response.Body.Close()
 	}()
 
-	events := make(chan StreamEvent, 100)
+	events := make(chan RawEvent, 1000)
 
 	go func() {
-		var err error
-
-		defer func() {
-			closedEvent := StreamEvent{Error: err}
-			events <- closedEvent
-			close(events)
-		}()
-
 		scanner := bufio.NewScanner(response.Body)
 		firstLine := ""
 
@@ -142,17 +134,17 @@ func (f *firebaseAPI) Stream(path, auth string, body interface{}, params map[str
 				continue
 			}
 
-			event := StreamEvent{}
+			event := RawEvent{}
 			event.Event = strings.Replace(firstLine, "event: ", "", 1)
-
-			data := strings.Replace(line, "data: ", "", 1)
-			event.Error = json.Unmarshal([]byte(data), &event.Data)
+			event.Data = strings.Replace(line, "data: ", "", 1)
 
 			events <- event
 			firstLine = ""
 		}
 
-		err = scanner.Err()
+		closeEvent := RawEvent{Error: scanner.Err()}
+		events <- closeEvent
+		close(events)
 	}()
 
 	return events, nil

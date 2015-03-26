@@ -118,6 +118,28 @@ var defaultUnmarshaller = func(jsonText []byte) (interface{}, error) {
 	return object, err
 }
 
+func handlePatchPut(event *StreamEvent, unmarshaller EventUnmarshaller) {
+	var halfParsedData struct {
+		Path string
+		Data json.RawMessage
+	}
+
+	err := json.Unmarshal([]byte(event.RawData), &halfParsedData)
+	if err != nil {
+		event.Error = err
+		return
+	}
+
+	event.Path = halfParsedData.Path
+
+	object, err := unmarshaller(halfParsedData.Data)
+	if err != nil {
+		event.UnmarshallerError = err
+	} else {
+		event.Resource = object
+	}
+}
+
 func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan StreamEvent, error) {
 	rawEvents, err := c.api.Stream(c.url, c.auth, nil, c.params, stop)
 	if err != nil {
@@ -131,26 +153,22 @@ func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan
 	}
 
 	go func() {
-		defer func() {
-			close(processedEvents)
-		}()
+		for rawEvent := range rawEvents {
+			event := StreamEvent{
+				Event:   rawEvent.Event,
+				RawData: rawEvent.Data,
+				Error:   rawEvent.Error,
+			}
 
-		for event := range rawEvents {
+			// connection error: just forward it along
+			if event.Error != nil {
+				processedEvents <- event
+				continue
+			}
+
 			switch event.Event {
 			case "patch", "put":
-				// usually a JSON parse error occurred if nil
-				if event.Data == nil {
-					processedEvents <- event
-					break
-				}
-
-				object, err := unmarshaller(event.Data.RawData)
-				if err != nil {
-					event.UnmarshallerError = err
-				} else {
-					event.Data.Object = object
-				}
-
+				handlePatchPut(&event, unmarshaller)
 				processedEvents <- event
 			case "keep-alive":
 				break
@@ -160,9 +178,12 @@ func (c *client) Watch(unmarshaller EventUnmarshaller, stop <-chan bool) (<-chan
 			case "auth_revoked":
 				event.Error = errors.New("Auth Token Revoked")
 				processedEvents <- event
+				close(processedEvents)
 				return
 			}
 		}
+
+		close(processedEvents)
 	}()
 
 	return processedEvents, nil

@@ -25,8 +25,8 @@ type Name struct {
 	Last  string `json:",omitempty"`
 }
 
-func nameAlloc() interface{} {
-	return &Name{}
+type Widget struct {
+	A int
 }
 
 func fakeServer(handler http.Handler) (*httptest.Server, *client) {
@@ -327,8 +327,9 @@ var _ = Describe("Manipulating values from firebase", func() {
 				Expect(err).To(BeNil())
 
 				expected := StreamEvent{
-					Event: "cancel",
-					Error: errors.New("Permission Denied"),
+					Event:   "cancel",
+					RawData: "null",
+					Error:   errors.New("Permission Denied"),
 				}
 
 				Eventually(events).Should(Receive(BeEquivalentTo(expected)))
@@ -350,8 +351,9 @@ var _ = Describe("Manipulating values from firebase", func() {
 				Expect(err).To(BeNil())
 
 				expected := StreamEvent{
-					Event: "auth_revoked",
-					Error: errors.New("Auth Token Revoked"),
+					Event:   "auth_revoked",
+					RawData: "null",
+					Error:   errors.New("Auth Token Revoked"),
 				}
 
 				Eventually(events).Should(Receive(BeEquivalentTo(expected)))
@@ -369,14 +371,11 @@ var _ = Describe("Manipulating values from firebase", func() {
 			})
 
 			It("Receives an event with the unmarshalled object", func() {
-				type Widget struct {
-					A int
-				}
-
-				expectedData := StreamData{
-					Path:    "1/2/3",
-					RawData: []byte(`{"a":1}`),
-					Object:  Widget{A: 1},
+				expectedEvent := StreamEvent{
+					Event:    "patch",
+					RawData:  `{"path": "1/2/3", "data": {"a":1}}`,
+					Path:     "1/2/3",
+					Resource: Widget{A: 1},
 				}
 
 				unmarshaller := func(jsonText []byte) (interface{}, error) {
@@ -387,12 +386,7 @@ var _ = Describe("Manipulating values from firebase", func() {
 
 				events, err = testClient.Watch(unmarshaller, stopChannel)
 				Expect(err).To(BeNil())
-
-				event := <-events
-				Expect(event.Event).To(Equal("patch"))
-				Expect(event.Error).To(BeNil())
-				Expect(event.UnmarshallerError).To(BeNil())
-				Expect(*event.Data).To(Equal(expectedData))
+				Eventually(events).Should(Receive(Equal(expectedEvent)))
 			})
 		})
 
@@ -407,14 +401,11 @@ var _ = Describe("Manipulating values from firebase", func() {
 			})
 
 			It("Receives an event with the unmarshalled object", func() {
-				type Widget struct {
-					A int
-				}
-
-				expectedData := StreamData{
-					Path:    "1/2/3",
-					RawData: []byte(`{"a":1}`),
-					Object:  Widget{A: 1},
+				expectedEvent := StreamEvent{
+					Event:    "put",
+					Path:     "1/2/3",
+					RawData:  `{"path": "1/2/3", "data": {"a":1}}`,
+					Resource: Widget{A: 1},
 				}
 
 				unmarshaller := func(jsonText []byte) (interface{}, error) {
@@ -425,34 +416,38 @@ var _ = Describe("Manipulating values from firebase", func() {
 
 				events, err = testClient.Watch(unmarshaller, stopChannel)
 				Expect(err).To(BeNil())
-
-				event := <-events
-				Expect(event.Event).To(Equal("put"))
-				Expect(event.Error).To(BeNil())
-				Expect(event.UnmarshallerError).To(BeNil())
-				Expect(*event.Data).To(Equal(expectedData))
+				Eventually(events).Should(Receive(Equal(expectedEvent)))
 			})
 		})
 
 		Context("When web server sends bad JSON (hopefully never!)", func() {
+			var (
+				badData   string = "{you know I'm bad, I'm bad}"
+				jsonError error
+			)
+
 			BeforeEach(func() {
+				var scratch map[string]interface{}
+				jsonError = json.Unmarshal([]byte(badData), &scratch)
+
 				handler = func(w http.ResponseWriter, r *http.Request) {
 					verifyStreamRequest(r)
 
 					fmt.Fprintln(w, "event: patch")
-					fmt.Fprintln(w, "data: {you know I'm bad, I'm bad}")
+					fmt.Fprintln(w, "data: "+badData)
 				}
 			})
 
 			It("Sends an event with a non-fatal error", func() {
+				expectedEvent := StreamEvent{
+					Event:   "patch",
+					RawData: badData,
+					Error:   jsonError,
+				}
+
 				events, err = testClient.Watch(nil, stopChannel)
 				Expect(err).To(BeNil())
-
-				event := <-events
-				Expect(event.Event).To(Equal("patch"))
-				Expect(event.Error).To(HaveOccurred())
-				Expect(event.UnmarshallerError).To(BeNil())
-				Expect(event.Data).To(BeNil())
+				Eventually(events).Should(Receive(Equal(expectedEvent)))
 			})
 		})
 
@@ -467,10 +462,11 @@ var _ = Describe("Manipulating values from firebase", func() {
 			})
 
 			It("Returns an event with error, no unmarshalled object", func() {
-				expectedData := StreamData{
-					Path:    "1/2/3",
-					RawData: []byte(`{}`),
-					Object:  nil,
+				expectedEvent := StreamEvent{
+					Event:             "put",
+					Path:              "1/2/3",
+					RawData:           `{"path": "1/2/3", "data": {}}`,
+					UnmarshallerError: errors.New("crash"),
 				}
 
 				unmarshaller := func(jsonText []byte) (interface{}, error) {
@@ -479,12 +475,7 @@ var _ = Describe("Manipulating values from firebase", func() {
 
 				events, err = testClient.Watch(unmarshaller, stopChannel)
 				Expect(err).To(BeNil())
-
-				event := <-events
-				Expect(event.Event).To(Equal("put"))
-				Expect(event.UnmarshallerError).To(MatchError("crash"))
-				Expect(event.Error).To(BeNil())
-				Expect(*event.Data).To(Equal(expectedData))
+				Eventually(events).Should(Receive(Equal(expectedEvent)))
 			})
 		})
 
@@ -499,20 +490,16 @@ var _ = Describe("Manipulating values from firebase", func() {
 			})
 
 			It("Unmarshals the event's payload into a map", func() {
-				expectedData := StreamData{
-					Path:    "1/2/3",
-					RawData: []byte(`{"a":1}`),
-					Object:  map[string]interface{}{"a": float64(1)},
+				expectedEvent := StreamEvent{
+					Event:    "put",
+					Path:     "1/2/3",
+					RawData:  `{"path": "1/2/3", "data": {"a":1}}`,
+					Resource: map[string]interface{}{"a": float64(1)},
 				}
 
 				events, err = testClient.Watch(nil, stopChannel)
 				Expect(err).To(BeNil())
-
-				event := <-events
-				Expect(event.Event).To(Equal("put"))
-				Expect(event.UnmarshallerError).To(BeNil())
-				Expect(event.Error).To(BeNil())
-				Expect(*event.Data).To(BeEquivalentTo(expectedData))
+				Eventually(events).Should(Receive(Equal(expectedEvent)))
 			})
 		})
 	})
