@@ -70,6 +70,61 @@ var _ = Describe("Transforming client urls/queries", func() {
 		Expect(c.Child("test").Key()).To(Equal("test"))
 		Expect(c.Child("/a/b/c/d/e/f/g").Key()).To(Equal("g"))
 	})
+
+	It("Sets a field to order the results by", func() {
+		orderByClient, isClient := c.OrderBy("field").(*client)
+		Expect(isClient).To(BeTrue())
+
+		expectedParams := map[string]string{
+			"orderBy": `"field"`,
+		}
+		Expect(orderByClient.params).To(BeEquivalentTo(expectedParams))
+	})
+
+	It("Queries for records whose field == true", func() {
+		equalClient, isClient := c.OrderBy("field").EqualTo(true).(*client)
+		Expect(isClient).To(BeTrue())
+
+		expectedParams := map[string]string{
+			"orderBy": `"field"`,
+			"equalTo": "true",
+		}
+		Expect(equalClient.params).To(BeEquivalentTo(expectedParams))
+	})
+
+	It("Queries ranges of fields", func() {
+		rangeClient, isClient := c.OrderBy("field").StartAt(0).EndAt(5).(*client)
+		Expect(isClient).To(BeTrue())
+
+		expectedParams := map[string]string{
+			"orderBy": `"field"`,
+			"startAt": "0",
+			"endAt":   "5",
+		}
+		Expect(rangeClient.params).To(BeEquivalentTo(expectedParams))
+	})
+
+	It("Limits query results to first 10 children", func() {
+		limitClient, isClient := c.OrderBy("field").LimitToFirst(5).(*client)
+		Expect(isClient).To(BeTrue())
+
+		expectedParams := map[string]string{
+			"orderBy":      `"field"`,
+			"limitToFirst": "5",
+		}
+		Expect(limitClient.params).To(BeEquivalentTo(expectedParams))
+	})
+
+	It("Limits query results to last 10 children", func() {
+		limitClient, isClient := c.OrderBy("field").LimitToLast(5).(*client)
+		Expect(isClient).To(BeTrue())
+
+		expectedParams := map[string]string{
+			"orderBy":     `"field"`,
+			"limitToLast": "5",
+		}
+		Expect(limitClient.params).To(BeEquivalentTo(expectedParams))
+	})
 })
 
 var _ = Describe("Manipulating values from firebase", func() {

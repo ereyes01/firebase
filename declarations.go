@@ -52,9 +52,11 @@ type Client interface {
 	// Query functions. They map directly to the Firebase operations.
 	// https://www.firebase.com/docs/rest/guide/retrieving-data.html#section-rest-queries
 	OrderBy(prop string) Client
-	EqualTo(value string) Client
-	StartAt(value string) Client
-	EndAt(value string) Client
+	EqualTo(value interface{}) Client
+	StartAt(value interface{}) Client
+	EndAt(value interface{}) Client
+	LimitToFirst(limit uint) Client
+	LimitToLast(limit uint) Client
 
 	// Creates a new value under this reference.
 	// Returns a reference to the newly created value.

@@ -219,7 +219,7 @@ const (
 )
 
 // These are some shenanigans, golang. Shenanigans I say.
-func (c *client) newParamMap(key, value string) map[string]string {
+func (c *client) newParamMap(key string, value interface{}) map[string]string {
 	ret := make(map[string]string, len(c.params)+1)
 	for key, value := range c.params {
 		ret[key] = value
@@ -229,7 +229,7 @@ func (c *client) newParamMap(key, value string) map[string]string {
 	return ret
 }
 
-func (c *client) clientWithNewParam(key, value string) *client {
+func (c *client) clientWithNewParam(key string, value interface{}) *client {
 	return &client{
 		api:    c.api,
 		auth:   c.auth,
@@ -246,16 +246,24 @@ func (c *client) OrderBy(prop string) Client {
 	return newC
 }
 
-func (c *client) EqualTo(value string) Client {
+func (c *client) EqualTo(value interface{}) Client {
 	return c.clientWithNewParam("equalTo", value)
 }
 
-func (c *client) StartAt(value string) Client {
+func (c *client) StartAt(value interface{}) Client {
 	return c.clientWithNewParam("startAt", value)
 }
 
-func (c *client) EndAt(value string) Client {
+func (c *client) EndAt(value interface{}) Client {
 	return c.clientWithNewParam("endAt", value)
+}
+
+func (c *client) LimitToFirst(limit uint) Client {
+	return c.clientWithNewParam("limitToFirst", limit)
+}
+
+func (c *client) LimitToLast(limit uint) Client {
+	return c.clientWithNewParam("limitToLast", limit)
 }
 
 func (c *client) Push(value interface{}, params map[string]string) (Client, error) {
