@@ -5,7 +5,6 @@ package firebase
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"regexp"
 	"strconv"
 	"time"
@@ -13,43 +12,52 @@ import (
 
 var keyExtractor = regexp.MustCompile(`https://.*/([^/]+)/?$`)
 
-// Timestamp is a time.Time with support for going from and to firebase
-// ServerValue.TIMESTAMP fields.
+// ServerTimestamp is a Go binding for Firebase's ServerValue.TIMESTAMP fields.
+// When marshalling a variable of ServerTimestamp type into JSON (i.e. to send
+// to Firebase), it takes the following JSON representation, no matter what
+// time value the variable has been assigned:
 //
-// Thanks to Gal Ben-Haim for the inspiration
-// https://medium.com/coding-and-deploying-in-the-cloud/time-stamps-in-golang-abcaf581b72f
-type Timestamp time.Time
+//     {".sv":"timestamp"}
+//
+// When this JSON value is sent to Firebase, it is substituted into a number
+// equal to milliseconds since the epoch, as measured by Firebase's servers.
+//
+// When reading a value of this type from Firebase, you receive a number equal
+// to milliseconds since the epoch. That value was computed by Firebase when
+// the JSON detailed above was written. A JSON unmarshal of this type will
+// convert a number of ms since the epoch into a time.Time value.
+//
+// NOTE: This approach results in non-symmetric marshal/unmarshal behavior
+// (i.e. unmarshal(marshal(ServerTimestamp{})) will return an error). It is
+// intended to be used only when reading/writing this value from Firebase.
+//
+// See the Firebase's documentation of ServerValues and timestamps for more
+// details:
+// https://www.firebase.com/docs/rest/api/#section-server-values
+type ServerTimestamp time.Time
 
-const milliDivider = 1000000
+func (t ServerTimestamp) MarshalJSON() ([]byte, error) {
+	var serverValue struct {
+		Value string `json:".sv"`
+	}
 
-func (t *Timestamp) MarshalJSON() ([]byte, error) {
-	ts := time.Time(*t).UnixNano() / milliDivider // Milliseconds
-	stamp := fmt.Sprint(ts)
-
-	return []byte(stamp), nil
+	serverValue.Value = "timestamp"
+	return json.Marshal(serverValue)
 }
 
-func (t *Timestamp) UnmarshalJSON(b []byte) error {
+func (t *ServerTimestamp) UnmarshalJSON(b []byte) error {
 	ts, err := strconv.ParseInt(string(b), 10, 64)
 	if err != nil {
 		return err
 	}
 
-	seconds := int64(ts) / 1000
-	nanoseconds := (int64(ts) % 1000) * milliDivider
-	*t = Timestamp(time.Unix(seconds, nanoseconds))
-
+	// Firebase reports milliseconds since the epoch, Go counts in ns.
+	*t = ServerTimestamp(time.Unix(0, ts*int64(time.Millisecond)))
 	return nil
 }
 
-func (t Timestamp) String() string {
-	return time.Time(t).String()
-}
-
-type ServerValue struct {
-	Value string `json:".sv"`
-}
-
+// FirebaseError is a Go representation of the error message sent back by Firebase when a
+// request results in an error.
 type FirebaseError struct {
 	Message string `json:"error"`
 }
@@ -57,11 +65,6 @@ type FirebaseError struct {
 func (f *FirebaseError) Error() string {
 	return f.Message
 }
-
-// Use this value to represent a Firebase server timestamp in a data structure.
-// This should be used when you're sending data to Firebase, as opposed to
-// the Timestamp type.
-var ServerTimestamp ServerValue = ServerValue{"timestamp"}
 
 // This is the actual default implementation
 type client struct {

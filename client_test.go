@@ -561,21 +561,23 @@ var _ = Describe("Manipulating values from firebase", func() {
 })
 
 var _ = Describe("Firebase timestamps", func() {
-	It("Marshals a timestamp into ms since the epoch", func() {
-		ts := Timestamp(time.Now())
-		marshaled, err := json.Marshal(&ts)
+	It("Unmarshals a Firebase ms timestamp into a Go time type", func() {
+		nowMs := (time.Now().UnixNano() / int64(time.Millisecond))
+		ts := fmt.Sprint(nowMs)
+
+		unmarshaledTs := ServerTimestamp{}
+		err := json.Unmarshal([]byte(ts), &unmarshaledTs)
 		Expect(err).To(BeNil())
 
-		unmarshaledTs := Timestamp{}
-		err = json.Unmarshal(marshaled, &unmarshaledTs)
-		Expect(err).To(BeNil())
-
-		// Compare unix timestamps as we lose some fidelity in the nanoseconds
-		Expect(time.Time(ts).Unix()).To(Equal(time.Time(unmarshaledTs).Unix()))
+		unmarshalledNs := time.Time(unmarshaledTs).UnixNano()
+		Expect(nowMs * int64(time.Millisecond)).To(Equal(unmarshalledNs))
 	})
 
-	It("Marhsals a server-side timestamp", func() {
-		text, err := json.Marshal(ServerTimestamp)
+	It("Marshals a server-side timestamp into a server-value", func() {
+		var ts ServerTimestamp
+		ts = ServerTimestamp(time.Now())
+
+		text, err := json.Marshal(ts)
 		Expect(err).To(BeNil())
 		Expect(string(text)).To(Equal(`{".sv":"timestamp"}`))
 	})
