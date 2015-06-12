@@ -99,8 +99,8 @@ func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Durati
 		Transport: &httpcontrol.Transport{
 			RequestTimeout:      readWriteTimeout,
 			DialTimeout:         connectTimeout,
-			MaxTries:            3,
-			MaxIdleConnsPerHost: 200,
+			MaxTries:            30,
+			MaxIdleConnsPerHost: 5,
 		},
 	}
 }
