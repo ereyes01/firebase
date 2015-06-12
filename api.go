@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -121,18 +122,39 @@ func (f *firebaseAPI) Stream(path, auth string, body interface{}, params map[str
 
 	events := make(chan RawEvent, 1000)
 
+	// bufio.Scanner barfs on really long events, as its buffer size is pretty
+	// small, and it can't be overridden. This is not the most memory-optimal
+	// implementation of the streaming client, but each event is not expected
+	// to exceed several KB.
 	go func() {
-		scanner := bufio.NewScanner(response.Body)
-		firstLine := ""
+		var (
+			err       error
+			firstLine string
+			lineBuf   []byte
+		)
 
-		for scanner.Scan() {
-			line := scanner.Text()
+		byteReader := bufio.NewReader(response.Body)
 
-			// we want to process 2 lines at a time
-			if firstLine == "" {
-				firstLine = line
+		for {
+			var b byte
+
+			b, err = byteReader.ReadByte()
+			if err != nil {
+				break
+			}
+
+			if b != "\n"[0] {
+				lineBuf = append(lineBuf, b)
 				continue
 			}
+
+			if firstLine == "" {
+				firstLine = string(lineBuf)
+				lineBuf = []byte{}
+				continue
+			}
+
+			line := string(lineBuf)
 
 			event := RawEvent{}
 			event.Event = strings.Replace(firstLine, "event: ", "", 1)
@@ -140,9 +162,14 @@ func (f *firebaseAPI) Stream(path, auth string, body interface{}, params map[str
 
 			events <- event
 			firstLine = ""
+			lineBuf = []byte{}
 		}
 
-		closeEvent := RawEvent{Error: scanner.Err()}
+		if err == io.EOF {
+			err = nil
+		}
+
+		closeEvent := RawEvent{Error: err}
 		events <- closeEvent
 		close(events)
 	}()
