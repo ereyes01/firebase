@@ -24,9 +24,9 @@ var streamClient = newTimeoutClient(connectTimeout, streamTimeout)
 type firebaseAPI struct{}
 
 var (
-	connectTimeout   = time.Duration(30 * time.Second) // timeout for http connection
-	readWriteTimeout = time.Duration(10 * time.Second) // timeout for http read/write
-	streamTimeout    = time.Duration(0)                // never time out reading from a stream
+	connectTimeout   = time.Duration(300 * time.Second) // timeout for http connection
+	readWriteTimeout = time.Duration(100 * time.Second) // timeout for http read/write
+	streamTimeout    = time.Duration(0)                 // never time out reading from a stream
 )
 
 func doFirebaseRequest(client *http.Client, method, path, auth, accept string, body interface{}, params map[string]string) (*http.Response, error) {
@@ -100,7 +100,8 @@ func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Durati
 		Transport: &httpcontrol.Transport{
 			RequestTimeout:      readWriteTimeout,
 			DialTimeout:         connectTimeout,
-			MaxTries:            30,
+			MaxTries:            300,
+			RetryAfterTimeout:   true,
 			MaxIdleConnsPerHost: 5,
 		},
 	}
