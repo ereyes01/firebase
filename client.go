@@ -115,9 +115,9 @@ func (c *client) Value(destination interface{}) error {
 	return nil
 }
 
-var defaultUnmarshaller = func(jsonText []byte) (interface{}, error) {
+var defaultUnmarshaller = func(path string, data []byte) (interface{}, error) {
 	var object map[string]interface{}
-	err := json.Unmarshal(jsonText, &object)
+	err := json.Unmarshal(data, &object)
 	return object, err
 }
 
@@ -135,7 +135,7 @@ func handlePatchPut(event *StreamEvent, unmarshaller EventUnmarshaller) {
 
 	event.Path = halfParsedData.Path
 
-	object, err := unmarshaller(halfParsedData.Data)
+	object, err := unmarshaller(halfParsedData.Path, halfParsedData.Data)
 	if err != nil {
 		event.UnmarshallerError = err
 	} else {

@@ -3,19 +3,20 @@ package firebase
 // Rules is the structure for security rules.
 type Rules map[string]interface{}
 
-// EventUnmarshaller callback accepts a raw JSON string and unmarshals it to
+// EventUnmarshaller callback accepts the path of the event, and the data
+// payload as a raw JSON byte slice. The data payload is unmarshalled to
 // any type of the implementor's choosing. The unmarshalled object is returned
 // as an interface{}, or an error is returned if the unmarshal fails.
-type EventUnmarshaller func(jsonText []byte) (interface{}, error)
+type EventUnmarshaller func(path string, data []byte) (interface{}, error)
 
 type Client interface {
-	// Returns the absolute URL path for the client
+	// String returns the absolute URL path for the client
 	String() string
 
-	// Returns the last part of the URL path for the client.
+	// Key returns the last part of the URL path for the client.
 	Key() string
 
-	//Gets the value referenced by the client and unmarshals it into
+	// Value GETs the value referenced by the client and unmarshals it into
 	// the passed in destination.
 	Value(destination interface{}) error
 

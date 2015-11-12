@@ -433,9 +433,10 @@ var _ = Describe("Manipulating values from firebase", func() {
 					Resource: Widget{A: 1},
 				}
 
-				unmarshaller := func(jsonText []byte) (interface{}, error) {
+				unmarshaller := func(path string, data []byte) (interface{}, error) {
 					var w Widget
-					err := json.Unmarshal(jsonText, &w)
+					Expect(path).To(Equal("1/2/3"))
+					err := json.Unmarshal(data, &w)
 					return w, err
 				}
 
@@ -463,9 +464,10 @@ var _ = Describe("Manipulating values from firebase", func() {
 					Resource: Widget{A: 1},
 				}
 
-				unmarshaller := func(jsonText []byte) (interface{}, error) {
+				unmarshaller := func(path string, data []byte) (interface{}, error) {
 					var w Widget
-					err := json.Unmarshal(jsonText, &w)
+					Expect(path).To(Equal("1/2/3"))
+					err := json.Unmarshal(data, &w)
 					return w, err
 				}
 
@@ -524,7 +526,8 @@ var _ = Describe("Manipulating values from firebase", func() {
 					UnmarshallerError: errors.New("crash"),
 				}
 
-				unmarshaller := func(jsonText []byte) (interface{}, error) {
+				unmarshaller := func(path string, data []byte) (interface{}, error) {
+					Expect(path).To(Equal("1/2/3"))
 					return 10, errors.New("crash")
 				}
 
