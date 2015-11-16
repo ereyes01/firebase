@@ -102,7 +102,7 @@ func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Durati
 			DialTimeout:         connectTimeout,
 			MaxTries:            300,
 			RetryAfterTimeout:   true,
-			MaxIdleConnsPerHost: 5,
+			MaxIdleConnsPerHost: 30,
 		},
 	}
 }
