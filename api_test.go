@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -99,6 +101,55 @@ var _ = Describe("Firebase SSE/Event Source client", func() {
 			Expect(err).To(BeNil())
 			Eventually(events).Should(Receive(Equal(expectedEvent1)))
 			Eventually(events).Should(Receive(Equal(expectedEvent2)))
+		})
+	})
+})
+
+var _ = Describe("Parsing timeout durations from env variables", func() {
+	var (
+		testVariable    = "FIREBASE_TIMEOUT_TEST"
+		defaultDuration = time.Duration(time.Second)
+	)
+
+	AfterEach(func() {
+		os.Setenv(testVariable, "")
+	})
+
+	Context("Custom timeout specified via environment variable", func() {
+		var (
+			testTimeout      = "5m7s"
+			expectedDuration = time.Duration(5*time.Minute + 7*time.Second)
+		)
+
+		BeforeEach(func() {
+			os.Setenv(testVariable, testTimeout)
+		})
+
+		It("Returns the correct duration from an environment variable", func() {
+			amount := parseTimeoutValue(testVariable, defaultDuration)
+			Expect(amount).To(Equal(expectedDuration))
+		})
+	})
+
+	Context("No custom timeout specified via environment variable", func() {
+		BeforeEach(func() {
+			os.Setenv(testVariable, "")
+		})
+
+		It("Returns the correct duration from an environment variable", func() {
+			amount := parseTimeoutValue(testVariable, defaultDuration)
+			Expect(amount).To(Equal(defaultDuration))
+		})
+	})
+
+	Context("Unparsable timeout specified via environment variable", func() {
+		BeforeEach(func() {
+			os.Setenv(testVariable, "zzzz")
+		})
+
+		It("Returns the correct duration from an environment variable", func() {
+			amount := parseTimeoutValue(testVariable, defaultDuration)
+			Expect(amount).To(Equal(defaultDuration))
 		})
 	})
 })

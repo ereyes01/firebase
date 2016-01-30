@@ -7,27 +7,69 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/facebookgo/httpcontrol"
 )
 
-// httpClient is the HTTP client used to make calls to Firebase with the default API
-var httpClient = newTimeoutClient(connectTimeout, readWriteTimeout)
-
-// streamClient is used as the HTTP client for streaming Event Source protocol
-// messages from Firebase
-var streamClient = newTimeoutClient(connectTimeout, streamTimeout)
-
 // f is the internal implementation of the Firebase API client.
 type firebaseAPI struct{}
 
 var (
-	connectTimeout   = time.Duration(300 * time.Second) // timeout for http connection
-	readWriteTimeout = time.Duration(100 * time.Second) // timeout for http read/write
-	streamTimeout    = time.Duration(0)                 // never time out reading from a stream
+	// connectTimeoutDefault is the default timeout for regular http connection
+	connectTimeoutDefault = time.Duration(300 * time.Second)
+
+	// readWriteTimeoutDefaul is the default timeout for http read/write
+	readWriteTimeoutDefault = time.Duration(100 * time.Second)
+
+	// streamTimeoutDefault is the default timeout for streaming http clients.
+	// By default, never time out reading from a stream
+	streamTimeoutDefault = time.Duration(0)
+
+	// httpClient is the connection pool for regular short lived HTTP calls to
+	// Firebase.
+	httpClient *http.Client
+
+	// streamClient is the connection pool for long lived Event Source / SSE
+	// stream connections to Firebase.
+	streamClient *http.Client
 )
+
+func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Duration) *http.Client {
+	return &http.Client{
+		Transport: &httpcontrol.Transport{
+			RequestTimeout:      readWriteTimeout,
+			DialTimeout:         connectTimeout,
+			MaxTries:            300,
+			RetryAfterTimeout:   true,
+			MaxIdleConnsPerHost: 30,
+		},
+	}
+}
+
+func parseTimeoutValue(envVariableName string, defaultTimeout time.Duration) time.Duration {
+	if timeout := os.Getenv(envVariableName); timeout != "" {
+		if timeoutDuration, err := time.ParseDuration(timeout); err == nil {
+			return timeoutDuration
+		}
+	}
+
+	return defaultTimeout
+}
+
+func init() {
+	connectTimeout := parseTimeoutValue("FIREBASE_CONNECT_TIMEOUT",
+		connectTimeoutDefault)
+	readWriteTimeout := parseTimeoutValue("FIREBASE_READWRITE_TIMEOUT",
+		readWriteTimeoutDefault)
+	streamTimeout := parseTimeoutValue("FIREBASE_STREAM_TIMEOUT",
+		streamTimeoutDefault)
+
+	httpClient = newTimeoutClient(connectTimeout, readWriteTimeout)
+	streamClient = newTimeoutClient(connectTimeout, streamTimeout)
+}
 
 func doFirebaseRequest(client *http.Client, method, path, auth, accept string, body interface{}, params map[string]string) (*http.Response, error) {
 	// Every path needs to end in .json for the Firebase REST API
@@ -93,18 +135,6 @@ func (f *firebaseAPI) Call(method, path, auth string, body interface{}, params m
 	}
 
 	return nil
-}
-
-func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Duration) *http.Client {
-	return &http.Client{
-		Transport: &httpcontrol.Transport{
-			RequestTimeout:      readWriteTimeout,
-			DialTimeout:         connectTimeout,
-			MaxTries:            300,
-			RetryAfterTimeout:   true,
-			MaxIdleConnsPerHost: 30,
-		},
-	}
 }
 
 // Stream implements an SSE/Event Source client that watches for changes at a
