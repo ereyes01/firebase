@@ -8,26 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
-
-	"github.com/facebookgo/httpcontrol"
 )
 
-// httpClient is the HTTP client used to make calls to Firebase with the default API
-var httpClient = newTimeoutClient(connectTimeout, readWriteTimeout)
-
-// streamClient is used as the HTTP client for streaming Event Source protocol
-// messages from Firebase
-var streamClient = newTimeoutClient(connectTimeout, streamTimeout)
-
-// f is the internal implementation of the Firebase API client.
+// firebaseAPI is the internal implementation of the Firebase API client.
 type firebaseAPI struct{}
-
-var (
-	connectTimeout   = time.Duration(300 * time.Second) // timeout for http connection
-	readWriteTimeout = time.Duration(100 * time.Second) // timeout for http read/write
-	streamTimeout    = time.Duration(0)                 // never time out reading from a stream
-)
 
 func doFirebaseRequest(client *http.Client, method, path, auth, accept string, body interface{}, params map[string]string) (*http.Response, error) {
 	// Every path needs to end in .json for the Firebase REST API
@@ -93,18 +77,6 @@ func (f *firebaseAPI) Call(method, path, auth string, body interface{}, params m
 	}
 
 	return nil
-}
-
-func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Duration) *http.Client {
-	return &http.Client{
-		Transport: &httpcontrol.Transport{
-			RequestTimeout:      readWriteTimeout,
-			DialTimeout:         connectTimeout,
-			MaxTries:            300,
-			RetryAfterTimeout:   true,
-			MaxIdleConnsPerHost: 30,
-		},
-	}
 }
 
 // Stream implements an SSE/Event Source client that watches for changes at a

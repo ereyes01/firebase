@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -99,6 +101,94 @@ var _ = Describe("Firebase SSE/Event Source client", func() {
 			Expect(err).To(BeNil())
 			Eventually(events).Should(Receive(Equal(expectedEvent1)))
 			Eventually(events).Should(Receive(Equal(expectedEvent2)))
+		})
+	})
+})
+
+var _ = Describe("Parsing timeouts / tunables from env variables", func() {
+	var (
+		testVariable    = "FIREBASE_TIMEOUT_TEST"
+		defaultDuration = time.Duration(time.Second)
+		defaultTunable  = 1
+	)
+
+	AfterEach(func() {
+		os.Setenv(testVariable, "")
+	})
+
+	Context("Custom timeout specified via environment variable", func() {
+		var (
+			testTimeout      = "5m7s"
+			expectedDuration = time.Duration(5*time.Minute + 7*time.Second)
+		)
+
+		BeforeEach(func() {
+			os.Setenv(testVariable, testTimeout)
+		})
+
+		It("Returns the correct duration from an environment variable", func() {
+			amount := parseTimeout(testVariable, defaultDuration)
+			Expect(amount).To(Equal(expectedDuration))
+		})
+	})
+
+	Context("No custom timeout specified via environment variable", func() {
+		BeforeEach(func() {
+			os.Setenv(testVariable, "")
+		})
+
+		It("Returns the default duration", func() {
+			amount := parseTimeout(testVariable, defaultDuration)
+			Expect(amount).To(Equal(defaultDuration))
+		})
+	})
+
+	Context("Unparsable timeout specified via environment variable", func() {
+		BeforeEach(func() {
+			os.Setenv(testVariable, "zzzz")
+		})
+
+		It("Returns the default duration", func() {
+			amount := parseTimeout(testVariable, defaultDuration)
+			Expect(amount).To(Equal(defaultDuration))
+		})
+	})
+
+	Context("Custom tunable specified via env variable", func() {
+		var (
+			testTunable   = "10"
+			expectedValue = 10
+		)
+
+		BeforeEach(func() {
+			os.Setenv(testVariable, testTunable)
+		})
+
+		It("Returns the correct tunable from an environment variable", func() {
+			tunable := parseTunable(testVariable, defaultTunable)
+			Expect(tunable).To(Equal(expectedValue))
+		})
+	})
+
+	Context("No custom tunable specified via env variable", func() {
+		BeforeEach(func() {
+			os.Setenv(testVariable, "")
+		})
+
+		It("Returns the default tunable", func() {
+			tunable := parseTunable(testVariable, defaultTunable)
+			Expect(tunable).To(Equal(defaultTunable))
+		})
+	})
+
+	Context("Unparsable tunable specified via env variable", func() {
+		BeforeEach(func() {
+			os.Setenv(testVariable, "zzzz")
+		})
+
+		It("Returns the default tunable", func() {
+			tunable := parseTunable(testVariable, defaultTunable)
+			Expect(tunable).To(Equal(defaultTunable))
 		})
 	})
 })
