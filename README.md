@@ -1,14 +1,21 @@
 Go Firebase
 ===========
 
-Helper library for invoking the Firebase REST API. Supports the following operations:
-- Read/Set/Push values to a Firebase path
-- Streaming updates to a Firebase path via the SSE / Event Source protocol
-- Firebase-friendly timestamp handling
+Helper library for invoking the Firebase REST API from your Go program. Supports the
+following operations:
+- Read and write values using Firebase's REST API operations
+- Stream updates to a Firebase path via the SSE / Event Source protocol
+- Use native Go types/structs in all Firebase operations
+- Server-side timestamps that are automatically converted into native Go times
+- Read and modify security rules
 
-Based on the great work of [cosn](https://github.com/cosn) and [JustinTulloss](https://github.com/JustinTulloss).
+My starting point was the great work of [cosn](https://github.com/cosn/firebase) and 
+[JustinTulloss](https://github.com/JustinTulloss/firebase). Most of the code has since
+been refactored, and comprehensive unit tests that do not call out to the network have
+been added.Also, support for streaming via SSE / Event Source from Firebase has been
+added.
 
-Please star if you find this library useful! Thanks!
+Please star on Github if you find this library useful! Thanks!
 
 ### Build Status
 
@@ -36,13 +43,16 @@ go test -race github.com/ereyes01/firebase
 
 ### Usage
 
-The usage examples below will use the sample [Dinosaur Facts Firebase](https://dinosaur-facts.firebaseio.com/) used in the [REST tutorial](https://www.firebase.com/docs/rest/guide/retrieving-data.html#section-rest-filtering)
+The usage examples below will use the sample 
+[Dinosaur Facts Firebase](https://dinosaur-facts.firebaseio.com/) used in the
+[REST tutorial](https://www.firebase.com/docs/rest/guide/retrieving-data.html#section-rest-filtering)
 
 ```go
 client := firebase.NewClient("https://dinosaur-facts.firebaseio.com", "", nil)
 ```
 
-Suppose we have a struct defined that matches each entry in the `dinosaurs/` path of this firebase. Our struct might be declared as follows:
+Suppose we have a struct defined that matches each entry in the `dinosaurs/` path of
+this firebase. Our struct might be declared as follows:
 
 ```go
 type Dinosaur struct {
@@ -71,17 +81,21 @@ dinoScores := make(map[string]int)
 err := client.Child("scores").OrderBy("$value").StartAt(50).Value(&dinoScores)
 ```
 
-If I wanted to create a new dinosaur score (NOTE: the permissions of this firebase do not allow this), we could try:
+If I wanted to create a new dinosaur score (NOTE: the permissions of this firebase do
+not allow this), we could try:
 
 ```go
 value, err := client.Child("scores").Set("velociraptor", 500, nil)
 ```
 
-We of course, don't have permissions to write to this Firebase. The error you'd get back should be:
+We of course, don't have permissions to write to this Firebase. The error you'd get back
+should be:
 
 ```
 Permission denied
 ```
+
+Create your own free test Firebase and feel free to experiment with writing values!
 
 Now suppose we wanted to watch changes to the Triceratops dinosaur in real-time. This,
 of course, will be a boring example because Triceratops will probably never change.
@@ -95,6 +109,7 @@ real-time (and stops streaming after 10 seconds):
 		close(stop)
 	}()
 
+    // this helps convert incoming events into Dinosaur objects
     dinoParser := func(path string, data []byte) (interface{}, error) {
 		var dino *Dinosaur
 		err := json.Unmarshal(data, &dino)
@@ -134,5 +149,10 @@ especially when you combine queries with watching resources. It's just the way F
 watching of resources works.
 
 You can read more about this behavior in my [Stack Overflow question](http://stackoverflow.com/questions/29265457/does-firebase-rest-streaming-support-ordering-and-filtering-child-nodes) and the subsequent discussion with one of the Firebase dudes.
+
+Please see the [Godoc reference](https://godoc.org/github.com/ereyes01/firebase) for a
+guide to the code and a more detailed list of operations. Also, please familiarize
+yourself with [Firebase's REST API capabilities](https://www.firebase.com/docs/rest/api/)
+before trying anything with this library.
 
 Please open issues for any bugs or suggestions you may have, or send me a PR. Thanks!
