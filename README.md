@@ -122,9 +122,9 @@ real-time (and stops streaming after 10 seconds):
 ```
 
 The code above will yield a stream of Go Dinosaur objects (or rather, pointers to them).
-The magic is in the event unmarshaller callback, in which you tell the watcher how to
-parse the json payload of the incoming events. When the streaming connection is closed,
-the events channel also closes.
+The magic is in the dinoParser callback. This function (passed to Watch) tells the watcher
+how to parse the json payload of the incoming events- in this case as Dinosaur pointers.
+When the streaming connection is closed, the events channel also closes.
 
 When you watch a Firebase location, you'll get back an initial event showing the state of
 the location as it was when you started watching it. Thereafter, you will receive an
