@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -54,10 +55,29 @@ func doFirebaseRequest(client *http.Client, method, path, auth, accept string, b
 
 // Call invokes the appropriate HTTP method on a given Firebase URL.
 func (f *firebaseAPI) Call(method, path, auth string, body interface{}, params map[string]string, dest interface{}) error {
-	response, err := doFirebaseRequest(httpClient, method, path, auth, "",
-		body, params)
-	if err != nil {
-		return err
+	var response *http.Response
+	var err error
+	retries := 10
+
+	for {
+		response, err = doFirebaseRequest(httpClient, method, path, auth, "",
+			body, params)
+		if err != nil && retries == 0 {
+			return err
+		} else if err != nil {
+			retries--
+			log.Println("Retry: ", err)
+			continue
+		}
+
+		if response.StatusCode >= 400 && retries > 0 {
+			retries--
+			log.Println("Retry: status code == ", response.StatusCode)
+			response.Body.Close()
+			continue
+		}
+
+		break
 	}
 
 	defer response.Body.Close()
