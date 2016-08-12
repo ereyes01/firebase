@@ -69,6 +69,26 @@ func parseTunable(envVariableName string, defaultTunable int) int {
 	return defaultTunable
 }
 
+// SetStreamTimeout replaces the connection pool for SSE streaming connections with a
+// new one, using the given duration as the value of its read timeout.
+//
+// The impetus behind this function is that firebase disruptions of long-lived SSE clients
+// happen occasionally. Connections are observed to remain alive but no longer report events.
+// This function enables consumers of this library to force-set a timeout value for all stream
+// connections to bound the amount of time they may remain open.
+//
+// WARNING: This function should only be called while there are no SSE stream connections open.
+func SetStreamTimeout(streamTimeout time.Duration) {
+	connectTimeout := parseTimeout("FIREBASE_CONNECT_TIMEOUT",
+		connectTimeoutDefault)
+
+	maxTries := parseTunable("FIREBASE_MAXTRIES", maxTriesDefault)
+	maxIdleConnsPerHost := parseTunable("FIREBASE_MAXIDLE", maxIdleConnsDefault)
+
+	streamClient = newTimeoutClient(connectTimeout, streamTimeout, maxTries,
+		maxIdleConnsPerHost)
+}
+
 func init() {
 	connectTimeout := parseTimeout("FIREBASE_CONNECT_TIMEOUT",
 		connectTimeoutDefault)
