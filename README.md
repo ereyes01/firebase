@@ -1,6 +1,8 @@
 Go Firebase
 ===========
 
+**NOTE**: This repo is in *maintenance mode*. If you're developing a new application, you should take a look at Google's [official Firebase bindings](https://github.com/firebase/firebase-admin-go). As of June 2020, this code is still stable and being used in production for real products. Maintenance / bug fixing will still be done if any is needed.
+
 Helper library for invoking the Firebase REST API from your Go program. Supports the
 following operations:
 - Read and write values using Firebase's REST API operations
@@ -12,7 +14,7 @@ following operations:
 My starting point was the great work of [cosn](https://github.com/cosn/firebase) and 
 [JustinTulloss](https://github.com/JustinTulloss/firebase). Most of the code has since
 been refactored, and comprehensive unit tests that do not call out to the network have
-been added.Also, support for streaming via SSE / Event Source from Firebase has been
+been added. Also, support for streaming via SSE / Event Source from Firebase has been
 added.
 
 Please star on Github if you find this library useful! Thanks!
